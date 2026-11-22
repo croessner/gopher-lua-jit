@@ -167,6 +167,7 @@ type Code struct {
 // Compile optimizes f, allocates registers and emits machine code with
 // the given macro assembler.
 func Compile(f *Func, m MacroAsm) (*Code, error) {
+	removeUnreachable(f)
 	if err := f.Verify(); err != nil {
 		return nil, err
 	}

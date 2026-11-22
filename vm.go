@@ -271,6 +271,7 @@ func threadRun(L *LState) {
 
 	defer func() {
 		if rcv := recover(); rcv != nil {
+			L.jitUnwind(0)
 			var lv LValue
 			if v, ok := rcv.(*ApiError); ok {
 				lv = v.Object

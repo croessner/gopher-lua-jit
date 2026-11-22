@@ -18,7 +18,7 @@ func main() {
 
 func mainAux() int {
 	var opt_e, opt_l, opt_p, opt_lua string
-	var opt_i, opt_v, opt_dt, opt_dc, opt_jit, opt_jitstats bool
+	var opt_i, opt_v, opt_dt, opt_dc, opt_jit, opt_jitstats, opt_jitlog bool
 	var opt_m, opt_jitthreshold int
 	flag.StringVar(&opt_e, "e", "", "")
 	flag.StringVar(&opt_l, "l", "", "")
@@ -31,6 +31,7 @@ func mainAux() int {
 	flag.BoolVar(&opt_dc, "dc", false, "")
 	flag.BoolVar(&opt_jit, "jit", false, "")
 	flag.BoolVar(&opt_jitstats, "jitstats", false, "")
+	flag.BoolVar(&opt_jitlog, "jitlog", false, "")
 	flag.IntVar(&opt_jitthreshold, "jit-threshold", 0, "")
 	flag.Usage = func() {
 		fmt.Println(`Usage: glua [options] [script [args]].
@@ -41,6 +42,7 @@ Available options are:
   -jit         enable the native JIT compiler
   -jit-threshold n  loop iterations before a loop is compiled
   -jitstats    print JIT statistics on exit
+  -jitlog      log JIT events to stderr
   -mx MB       memory limit(default: unlimited)
   -dt          dump AST trees
   -dc          dump VM codes
@@ -80,6 +82,9 @@ Available options are:
 	}
 	opts.JIT.Enabled = opt_jit
 	opts.JIT.Threshold = opt_jitthreshold
+	if opt_jitlog {
+		opts.JIT.Log = os.Stderr
+	}
 
 	L := lua.NewState(opts)
 	defer L.Close()

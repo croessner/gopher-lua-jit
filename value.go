@@ -179,6 +179,9 @@ type LFunction struct {
 	Proto     *FunctionProto
 	GFunction LGFunction
 	Upvalues  []*Upvalue
+
+	// jitp caches the JIT state of the prototype for the owning state.
+	jitp *jitProto
 }
 type LGFunction func(*LState) int
 
