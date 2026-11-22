@@ -138,7 +138,7 @@ func arithSlow(L *LState, opcode int, lhs, rhs LValue) LValue {
 		// both are numbers: the operation itself failed
 		switch opcode {
 		case OP_MOD:
-			L.RaiseError("%s", "attempt to perform 'n%%0'")
+			L.RaiseError("%s", "attempt to perform 'n%0'")
 		case OP_IDIV:
 			L.RaiseError("attempt to divide by zero")
 		default:
@@ -404,13 +404,9 @@ func forNumber(L *LState, what string, v LValue) LValue {
 // inlined in the OP_FORPREP handler.
 func forPrep(L *LState, ra int) bool {
 	reg := L.reg
-	initv := forNumber(L, "init", reg.array[ra])
-	stepv := forNumber(L, "step", reg.array[ra+2])
-	// an initial value or step given as a string makes it a float loop
-	_, initStr := reg.array[ra].(LString)
-	_, stepStr := reg.array[ra+2].(LString)
-	if init, ok := initv.(LInteger); ok && !initStr && !stepStr {
-		if step, ok := stepv.(LInteger); ok {
+	// (an initial value or step given as a string makes it a float loop)
+	if init, ok := reg.array[ra].(LInteger); ok {
+		if step, ok := reg.array[ra+2].(LInteger); ok {
 			if step == 0 {
 				L.RaiseError("'for' step is zero")
 			}
@@ -425,8 +421,20 @@ func forPrep(L *LState, ra int) bool {
 			return true
 		}
 	}
+	// a float loop; invalid control values are reported in the order of
+	// the respective reference implementation
+	var initv, limitv, stepv LValue
+	if L.lang55 {
+		limitv = forNumber(L, "limit", reg.array[ra+1])
+		stepv = forNumber(L, "step", reg.array[ra+2])
+		initv = forNumber(L, "init", reg.array[ra])
+	} else {
+		initv = forNumber(L, "init", reg.array[ra])
+		stepv = forNumber(L, "step", reg.array[ra+2])
+		limitv = forNumber(L, "limit", reg.array[ra+1])
+	}
 	init, _ := toFloat(initv)
-	limit, _ := toFloat(forNumber(L, "limit", reg.array[ra+1]))
+	limit, _ := toFloat(limitv)
 	step, _ := toFloat(stepv)
 	if L.lang55 {
 		if step == 0 {

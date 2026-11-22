@@ -12,6 +12,10 @@ import (
 
 const maxRegisters = 200
 
+// maxUpvalues is the number of upvalues a function may have (their count
+// and the upvalue operands are stored in eight bits).
+const maxUpvalues = 255
+
 type expContextType int
 
 const (
@@ -491,6 +495,8 @@ type nameRef struct {
 	kind    nameKind
 	reg     int
 	isConst bool
+	// declared is true for a global named in a global declaration.
+	declared bool
 }
 
 // resolveName resolves an identifier in the scope of context following
@@ -509,7 +515,7 @@ func resolveName(context *funcContext, name string, line int) nameRef {
 				}
 				switch {
 				case gd.name == name:
-					return nameRef{kind: nkGlobal, isConst: gd.isConst}
+					return nameRef{kind: nkGlobal, isConst: gd.isConst, declared: true}
 				case gd.name == "":
 					if collective < 0 {
 						collective = 0
@@ -551,6 +557,14 @@ func resolveEnv(context *funcContext) (reg int, isLocal bool) {
 	return -1, false
 }
 
+// checkEnvForGlobal rejects a global access in a scope where _ENV itself
+// was declared global: there is no variable to index then.
+func checkEnvForGlobal(context *funcContext, name string, line int) {
+	if resolveName(context, "_ENV", line).declared {
+		raiseCompileError(context, line, "_ENV is global when accessing variable '%s'", name)
+	}
+}
+
 // emitGetGlobal emits code that loads the global name into register a.
 func emitGetGlobal(context *funcContext, a int, name string, line int) {
 	code := context.Code
@@ -559,6 +573,8 @@ func emitGetGlobal(context *funcContext, a int, name string, line int) {
 		code.AddABx(OP_GETGLOBAL, a, kidx, line)
 		return
 	}
+	checkEnvForGlobal(context, name, line)
+
 	if envreg, isLocal := resolveEnv(context); isLocal {
 		if kidx <= opMaxIndexRk {
 			code.AddABC(OP_GETTABLEKS, a, envreg, opRkAsk(kidx), line)
@@ -581,6 +597,8 @@ func emitSetGlobal(context *funcContext, a int, name string, tmp int, line int) 
 		code.AddABx(OP_SETGLOBAL, a, kidx, line)
 		return
 	}
+	checkEnvForGlobal(context, name, line)
+
 	if envreg, isLocal := resolveEnv(context); isLocal {
 		if kidx <= opMaxIndexRk {
 			code.AddABC(OP_SETTABLEKS, envreg, opRkAsk(kidx), a, line)
@@ -705,6 +723,9 @@ func (fc *funcContext) ResolveGoto(from, to *gotoLabelDesc, index int) {
 		varName := fc.Block.LocalVars.Names()[len(fc.Block.LocalVars.Names())-1]
 		raiseCompileError(fc, to.Line+1, "<goto %s> at line %d jumps into the scope of local '%s'", to.Name, from.Line, varName)
 	}
+	// the CLOSE in front of the jump ends the scopes the goto leaves:
+	// everything above the locals that are active at the label
+	fc.Code.SetA(from.Pc-1, to.NumActiveLocalVars)
 	fc.Code.SetSbx(from.Pc, to.Id)
 	delete(fc.unresolvedGotos, index)
 }
@@ -712,9 +733,6 @@ func (fc *funcContext) ResolveGoto(from, to *gotoLabelDesc, index int) {
 func (fc *funcContext) FindLabel(block *codeBlock, gotoLabel *gotoLabelDesc, i int) bool {
 	target := block.GetLabel(gotoLabel.Name)
 	if target != nil {
-		if gotoLabel.NumActiveLocalVars > target.NumActiveLocalVars && block.RefUpvalue {
-			fc.Code.SetA(gotoLabel.Pc-1, target.NumActiveLocalVars)
-		}
 		fc.ResolveGoto(gotoLabel, target, i)
 		return true
 	}
@@ -729,9 +747,6 @@ func (fc *funcContext) ResolveCurrentBlockGotosWithParentBlock() {
 			continue
 		}
 		if gotoLabel.NumActiveLocalVars > blockActiveLocalVars {
-			if fc.Block.RefUpvalue {
-				fc.Code.SetA(gotoLabel.Pc-1, blockActiveLocalVars)
-			}
 			gotoLabel.SetNumActiveLocalVars(blockActiveLocalVars)
 		}
 		fc.FindLabel(fc.Block.Parent, gotoLabel, i)
@@ -752,6 +767,11 @@ func (fc *funcContext) ResolveForwardGoto(target *gotoLabelDesc) {
 
 func (fc *funcContext) NewLabel() int {
 	ret := fc.labelId
+	if ret > opMaxArgSbx {
+		// label ids travel in the sBx operand of jumps until they are
+		// resolved
+		raiseCompileError(fc, fc.Proto.LineDefined, "function is too complex (too many jump labels)")
+	}
 	fc.labelId++
 	return ret
 }
@@ -985,7 +1005,9 @@ func compileAssignStmtLeft(context *funcContext, stmt *ast.AssignStmt) (int, []*
 				// With several targets every right-hand side is evaluated
 				// into a temporary first: all expressions must see the
 				// values the variables had before the assignment.
-				if len(stmt.Lhs) == 1 {
+				// The same holds for a single target with surplus
+				// expressions, which run before the assignment.
+				if len(stmt.Lhs) == 1 && len(stmt.Rhs) == 1 {
 					ec.reg = ref.reg
 				}
 			}
@@ -1687,9 +1709,13 @@ func compileFunctionExpr(context *funcContext, funcexpr *ast.FunctionExpr, ec *e
 	context.Proto.Code = context.Code.List()
 	context.Proto.DbgSourcePositions = context.Code.PosList()
 	context.Proto.DbgUpvalues = context.Upvalues.Names()
+	if len(context.Proto.DbgUpvalues) > maxUpvalues {
+		raiseCompileError(context, context.Proto.LineDefined, "function has more than %d upvalues", maxUpvalues)
+	}
 	context.Proto.NumUpvalues = uint8(len(context.Proto.DbgUpvalues))
-	context.Proto.EnvUpvalue = int8(context.Upvalues.Find("_ENV"))
 	if context.lua55 {
+		// (in Lua 5.1 code _ENV is an ordinary variable name)
+		context.Proto.EnvUpvalue = int16(context.Upvalues.Find("_ENV"))
 		context.Proto.Version = Lua55
 	}
 	for _, clv := range context.Proto.Constants {
@@ -1750,7 +1776,7 @@ func compileTableExpr(context *funcContext, reg int, ex *ast.TableExpr, ec *expc
 			}
 			c := (arraycount-1)/FieldsPerFlush + 1
 			b := num
-			if islast && isVarArgReturnExpr(field.Value) {
+			if lastvararg {
 				b = 0
 			}
 			line := field.Value
@@ -1892,6 +1918,14 @@ func compileRelationalOpExpr(context *funcContext, reg int, expr *ast.Relational
 } // }}}
 
 func compileLogicalOpExpr(context *funcContext, reg int, expr *ast.LogicalOpExpr, ec *expcontext) { // {{{
+	if shouldmove(ec, reg) {
+		// the target is an existing local: later operands may still read
+		// it, and a short-circuit has to store the deciding operand, so
+		// the expression is evaluated in a temporary first
+		compileLogicalOpExpr(context, reg, expr, ecnone(0))
+		context.Code.AddABC(OP_MOVE, ec.reg, reg, 0, sline(expr))
+		return
+	}
 	a := savereg(ec, reg)
 	code := context.Code
 	endlabel := context.NewLabel()
@@ -2027,11 +2061,10 @@ func compileLogicalOpExprAux(context *funcContext, reg int, expr ast.Expr, ec *e
 } // }}}
 
 func compileFuncCallExpr(context *funcContext, reg int, expr *ast.FuncCallExpr, ec *expcontext) int { // {{{
+	// (the call is always set up in temporaries: building it in the
+	// register of the target variable would destroy the variable before
+	// the arguments are evaluated and overwrite the locals behind it)
 	funcreg := reg
-	if ec.ctype == ecLocal && ec.reg == (int(context.Proto.NumParameters)-1) {
-		funcreg = ec.reg
-		reg = ec.reg
-	}
 	argc := len(expr.Args)
 	islastvararg := false
 	name := "(anonymous)"
@@ -2199,6 +2232,10 @@ func patchCode(context *funcContext) { // {{{
 				context.Code.SetC(pc-moven, intMin(moven-1, opMaxArgsC))
 			}
 			moven = 0
+		}
+		if curop == OP_SETLIST && opGetArgC(inst) == 0 {
+			// the block number in the following word is not an instruction
+			pc++
 		}
 	}
 	maxreg++

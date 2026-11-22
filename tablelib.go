@@ -29,7 +29,9 @@ var tableFuncs = map[string]LGFunction{
 func tableSort(L *LState) int {
 	tbl := L.CheckTable(1)
 	tbl.genericize() // the sorter works on the generic array representation
-	sorter := lValueArraySorter{L, nil, tbl.array}
+	// (only the elements up to the border are sorted: the array part may
+	// end with nil values after elements were removed by assignment)
+	sorter := lValueArraySorter{L, nil, tbl.array[:tbl.Len()]}
 	if L.GetTop() != 1 {
 		sorter.Fn = L.CheckFunction(2)
 	}

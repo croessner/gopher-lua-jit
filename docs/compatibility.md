@@ -110,9 +110,17 @@ against the oracle).
 - **`^`** uses Go's `math.Pow`; results can differ from C `pow` in the last
   bit (`10^64` prints `1.0000000000000002e+64`). The same holds for other
   transcendental functions of `math`.
+- **Line numbers in run-time errors** of expressions that span several
+  lines can differ from the oracle, which reports the line of the operator
+  or call.
 - **Limits**: a function can use about 200 registers (the oracle: 255), so
-  very long argument lists fail to compile; more than 255 upvalues are not
-  rejected.
+  very long argument lists fail to compile. Inherited from GopherLua and
+  unchanged: the compiler needs quadratic time for functions with very
+  many distinct constants (hundreds of thousands), and exceeding
+  `RegistrySize` raises `registry overflow`. A function that needs more
+  than 131071 jump labels (for example one expression with 100000
+  `and`/`or` operands) is rejected with a compile error; GopherLua did not
+  terminate on such input.
 
 ### Not implemented
 

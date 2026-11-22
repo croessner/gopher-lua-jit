@@ -415,7 +415,7 @@ func baseToNumber(L *LState) int {
 	noBase := L.Get(2) == LNil
 
 	switch lv := L.CheckAny(1).(type) {
-	case LNumber:
+	case LNumber, LInteger: // (integers only get here when Go code injects them)
 		L.Push(lv)
 	case LString:
 		str := strings.Trim(string(lv), " \n\t")

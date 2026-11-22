@@ -13,12 +13,10 @@ type parser struct {
 	lx    *Lexer
 	lua55 bool
 
-	tok   ast.Token // current token
-	tokNL bool      // "ambiguous call" marker of the current token
+	tok ast.Token // current token
 	// one token of extra lookahead
 	hasAhead bool
 	ahead    ast.Token
-	aheadNL  bool
 
 	prevLine int // line of the most recently consumed token
 	depth    int // nesting depth guard
@@ -29,7 +27,7 @@ type parser struct {
 
 const maxParseDepth = 200
 
-func (p *parser) scan() (ast.Token, bool) {
+func (p *parser) scan() ast.Token {
 	lx := p.lx
 	lx.PrevTokenType = lx.Token.Type
 	tok, err := lx.scanner.Scan(lx)
@@ -37,7 +35,7 @@ func (p *parser) scan() (ast.Token, bool) {
 		panic(err)
 	}
 	lx.Token = tok
-	return tok, lx.PNewLine
+	return tok
 }
 
 // next advances to the next token.
@@ -46,17 +44,17 @@ func (p *parser) next() {
 		p.prevLine = p.tok.Pos.Line
 	}
 	if p.hasAhead {
-		p.tok, p.tokNL = p.ahead, p.aheadNL
+		p.tok = p.ahead
 		p.hasAhead = false
 		return
 	}
-	p.tok, p.tokNL = p.scan()
+	p.tok = p.scan()
 }
 
 // peek returns the token after the current one without consuming it.
 func (p *parser) peek() ast.Token {
 	if !p.hasAhead {
-		p.ahead, p.aheadNL = p.scan()
+		p.ahead = p.scan()
 		p.hasAhead = true
 	}
 	return p.ahead
@@ -742,12 +740,10 @@ func (p *parser) parsePrimaryExpr() ast.Expr {
 			ex.AdjustRet = true
 			return inner
 		}
-		if p.lua55 {
-			if p.paren == nil {
-				p.paren = make(map[ast.Expr]bool)
-			}
-			p.paren[inner] = true
+		if p.paren == nil {
+			p.paren = make(map[ast.Expr]bool)
 		}
+		p.paren[inner] = true
 		inner.SetLine(tok.Pos.Line)
 		return inner
 	}
@@ -804,9 +800,8 @@ func (p *parser) parseCallArgs() []ast.Expr {
 	case '{':
 		return []ast.Expr{p.parseTable()}
 	case '(':
-		if p.tokNL && !p.lua55 {
-			p.errorAt(tok, "ambiguous syntax (function call x new statement)")
-		}
+		// (A call continued on a new line is one statement, like in
+		// GopherLua and Lua 5.2+; reference Lua 5.1 calls it ambiguous.)
 		p.next()
 		if p.accept(')') {
 			return []ast.Expr{}
@@ -845,6 +840,10 @@ func (p *parser) parseTable() ast.Expr {
 		e.Fields = append(e.Fields, field)
 		if !p.accept(',') && !p.accept(';') {
 			break
+		}
+		for !p.lua55 && (p.check(',') || p.check(';')) {
+			// GopherLua's grammar tolerates repeated field separators
+			p.next()
 		}
 	}
 	p.expectMatch('}', '{', tok.Pos.Line)

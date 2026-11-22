@@ -43,7 +43,7 @@ type FunctionProto struct {
 	Version LanguageVersion
 	// EnvUpvalue is the index of the _ENV upvalue used by OP_GETENV and
 	// OP_SETENV, or -1 if the function has none (always -1 for Lua 5.1).
-	EnvUpvalue int8
+	EnvUpvalue int16
 
 	stringConstants []string
 
