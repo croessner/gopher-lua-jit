@@ -907,11 +907,25 @@ func opArith(L *LState, inst uint32, baseframe *callFrame) int { //OP_ADD, OP_SU
 	C := int(inst>>9) & 0x1ff //GETC
 	lhs := L.rkValue(B)
 	rhs := L.rkValue(C)
+	// fast paths: float and integer operands in any combination for the
+	// operators that cannot fail; everything else takes the generic path
 	if v1, ok1 := lhs.(LNumber); ok1 {
-		if v2, ok2 := rhs.(LNumber); ok2 && opcode <= OP_POW {
-			v := numberArith(L, opcode, v1, v2)
-			// +inline-call reg.SetNumber RA v
-			return 0
+		v2, ok2 := rhs.(LNumber)
+		if !ok2 {
+			if i2, isint := rhs.(LInteger); isint {
+				v2, ok2 = LNumber(i2), true
+			}
+		}
+		if ok2 {
+			if opcode <= OP_POW {
+				v := numberArith(L, opcode, v1, v2)
+				// +inline-call reg.SetNumber RA v
+				return 0
+			} else if opcode == OP_IDIV {
+				v := LNumber(math.Floor(float64(v1) / float64(v2)))
+				// +inline-call reg.SetNumber RA v
+				return 0
+			}
 		}
 	} else if i1, ok1 := lhs.(LInteger); ok1 {
 		if i2, ok2 := rhs.(LInteger); ok2 {
@@ -927,6 +941,32 @@ func opArith(L *LState, inst uint32, baseframe *callFrame) int { //OP_ADD, OP_SU
 			case OP_MUL:
 				iv := i1 * i2
 				// +inline-call reg.SetInteger RA iv
+				return 0
+			case OP_DIV:
+				v := LNumber(float64(i1) / float64(i2))
+				// +inline-call reg.SetNumber RA v
+				return 0
+			case OP_MOD:
+				if i2 != 0 {
+					iv := LInteger(intMod(int64(i1), int64(i2)))
+					// +inline-call reg.SetInteger RA iv
+					return 0
+				}
+			case OP_IDIV:
+				if i2 != 0 {
+					iv := LInteger(intFloorDiv(int64(i1), int64(i2)))
+					// +inline-call reg.SetInteger RA iv
+					return 0
+				}
+			}
+		} else if v2, ok2 := rhs.(LNumber); ok2 {
+			if opcode <= OP_POW {
+				v := numberArith(L, opcode, LNumber(i1), v2)
+				// +inline-call reg.SetNumber RA v
+				return 0
+			} else if opcode == OP_IDIV {
+				v := LNumber(math.Floor(float64(i1) / float64(v2)))
+				// +inline-call reg.SetNumber RA v
 				return 0
 			}
 		}

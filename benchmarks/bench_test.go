@@ -57,9 +57,10 @@ func loadKernel(tb testing.TB, L *lua.LState, name string) lua.LValue {
 	return run
 }
 
-// callKernel calls the run function once.
-func callKernel(tb testing.TB, L *lua.LState, run lua.LValue, n int) {
-	if err := L.CallByParam(lua.P{Fn: run, NRet: 1, Protect: true}, lua.LNumber(n)); err != nil {
+// callKernel calls the run function once. The problem size is passed as
+// the number type the configuration uses for integers.
+func callKernel(tb testing.TB, cfg config, L *lua.LState, run lua.LValue, n int) {
+	if err := L.CallByParam(lua.P{Fn: run, NRet: 1, Protect: true}, cfg.num(n)); err != nil {
 		tb.Fatal(err)
 	}
 	L.Pop(1)
@@ -74,12 +75,12 @@ func BenchmarkKernel(b *testing.B) {
 				L := cfg.newState()
 				defer L.Close()
 				run := loadKernel(b, L, k.name)
-				callKernel(b, L, run, k.n) // warm up (and compile)
-				callKernel(b, L, run, k.n)
+				callKernel(b, cfg, L, run, k.n) // warm up (and compile)
+				callKernel(b, cfg, L, run, k.n)
 				b.ReportAllocs()
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {
-					callKernel(b, L, run, k.n)
+					callKernel(b, cfg, L, run, k.n)
 				}
 				b.StopTimer()
 				reportJIT(b, L)
@@ -105,7 +106,7 @@ func BenchmarkCold(b *testing.B) {
 				for i := 0; i < b.N; i++ {
 					L := cfg.newState()
 					run := loadKernel(b, L, name)
-					callKernel(b, L, run, n)
+					callKernel(b, cfg, L, run, n)
 					L.Close()
 				}
 			})
@@ -127,7 +128,7 @@ func BenchmarkGoToLua(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				if err := L.CallByParam(p, lua.LNumber(i), lua.LNumber(2)); err != nil {
+				if err := L.CallByParam(p, cfg.num(i), cfg.num(2)); err != nil {
 					b.Fatal(err)
 				}
 				L.Pop(1)
@@ -171,7 +172,7 @@ end`
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
 					L := pool.Get().(*lua.LState)
-					if err := L.CallByParam(lua.P{Fn: L.GetGlobal("handle"), NRet: 1, Protect: true}, lua.LNumber(200)); err != nil {
+					if err := L.CallByParam(lua.P{Fn: L.GetGlobal("handle"), NRet: 1, Protect: true}, cfg.num(200)); err != nil {
 						b.Fatal(err)
 					}
 					L.Pop(1)

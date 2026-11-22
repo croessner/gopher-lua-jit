@@ -12,7 +12,12 @@ import (
 type config struct {
 	name     string
 	newState func() *lua.LState
+	// num converts a Go integer to the Lua number passed to scripts.
+	num func(int) lua.LValue
 }
+
+func floatArg(n int) lua.LValue { return lua.LNumber(n) }
+func intArg(n int) lua.LValue   { return lua.LInteger(n) }
 
 func newState(version lua.LanguageVersion, jit bool) func() *lua.LState {
 	return func() *lua.LState {
@@ -26,10 +31,10 @@ func newState(version lua.LanguageVersion, jit bool) func() *lua.LState {
 }
 
 var configs = []config{
-	{"interp-lua51", newState(lua.Lua51, false)},
-	{"jit-lua51", newState(lua.Lua51, true)},
-	{"interp-lua55", newState(lua.Lua55, false)},
-	{"jit-lua55", newState(lua.Lua55, true)},
+	{"interp-lua51", newState(lua.Lua51, false), floatArg},
+	{"jit-lua51", newState(lua.Lua51, true), floatArg},
+	{"interp-lua55", newState(lua.Lua55, false), intArg},
+	{"jit-lua55", newState(lua.Lua55, true), intArg},
 }
 
 // reportJIT adds JIT metrics to a benchmark result.
