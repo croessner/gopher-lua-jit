@@ -112,9 +112,9 @@ func utf8Encode(buf []byte, x uint32) []byte {
 	return append(buf, tmp[len(tmp)-n:]...)
 }
 
-// utf8.len(s [, i [, j [, lax]]]) returns the number of characters that
-// start between positions i and j, or fail plus the position of the first
-// invalid byte.
+// utf8Len implements utf8.len(s [, i [, j [, lax]]]): the number of
+// characters that start between positions i and j, or fail plus the
+// position of the first invalid byte.
 func utf8Len(L *LState) int {
 	s := strArg55(L, 1)
 	slen := int64(len(s))
@@ -144,8 +144,8 @@ func utf8Len(L *LState) int {
 	return 1
 }
 
-// utf8.codepoint(s [, i [, j [, lax]]]) returns the code points of all
-// characters that start between positions i and j.
+// utf8Codepoint implements utf8.codepoint(s [, i [, j [, lax]]]): the code
+// points of all characters that start between positions i and j.
 func utf8Codepoint(L *LState) int {
 	s := strArg55(L, 1)
 	slen := int64(len(s))
@@ -178,7 +178,7 @@ func utf8Codepoint(L *LState) int {
 	return n
 }
 
-// utf8.char(...) returns the concatenated UTF-8 encodings of its integer
+// utf8Char implements utf8.char(...): the concatenated UTF-8 encodings of its integer
 // arguments.
 func utf8Char(L *LState) int {
 	n := L.GetTop()
@@ -194,8 +194,9 @@ func utf8Char(L *LState) int {
 	return 1
 }
 
-// utf8.offset(s, n [, i]) returns the start and end positions of the n-th
-// character counting from position i (0 means the character at i).
+// utf8Offset implements utf8.offset(s, n [, i]): the start and end
+// positions of the n-th character counting from position i (0 means the
+// character at i).
 func utf8Offset(L *LState) int {
 	s := strArg55(L, 1)
 	slen := int64(len(s))
@@ -285,7 +286,7 @@ func utf8CodesIter(L *LState, strict bool) int {
 	return 2
 }
 
-// utf8.codes(s [, lax]) returns an iterator over the characters of s.
+// utf8Codes implements utf8.codes(s [, lax]): an iterator over the characters of s.
 func utf8Codes(L *LState) int {
 	lax := LVAsBool(L.Get(2))
 	s := strArg55(L, 1)

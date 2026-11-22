@@ -7,10 +7,14 @@ import (
 	"github.com/yuin/gopher-lua/pm"
 )
 
+// TestLua55Strings runs the string and utf8 conformance scripts in the
+// Lua 5.5 profile.
 func TestLua55Strings(t *testing.T) {
 	runLua55Scripts(t, "strings", Options{})
 }
 
+// TestLua55StringsReference checks the expectations of the conformance
+// scripts against the reference interpreter.
 func TestLua55StringsReference(t *testing.T) {
 	checkLua55Reference(t, "strings")
 }

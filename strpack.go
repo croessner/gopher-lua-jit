@@ -309,6 +309,7 @@ func packItem(L *LState, buf []byte, opt packOption, size int64, little bool, ar
 	return buf, 0
 }
 
+// str55Pack implements string.pack(fmt, v1, v2, ...).
 func str55Pack(L *LState) int {
 	h := newPackHeader(L)
 	L.Push(LNil) // like the reference: a missing argument is reported as nil
@@ -333,6 +334,7 @@ func str55Pack(L *LState) int {
 	return 1
 }
 
+// str55PackSize implements string.packsize(fmt) for fixed-size formats.
 func str55PackSize(L *LState) int {
 	h := newPackHeader(L)
 	totalSize := int64(0)
@@ -360,6 +362,8 @@ func unpackFloat(L *LState, data string, little bool, size int) LNumber {
 	return LNumber(math.Float64frombits(bits))
 }
 
+// str55Unpack implements string.unpack(fmt, s [, pos]); the position
+// behind the last read item is returned as an extra result.
 func str55Unpack(L *LState) int {
 	h := newPackHeader(L)
 	data := strArg55(L, 2)

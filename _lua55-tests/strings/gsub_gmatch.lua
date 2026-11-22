@@ -170,6 +170,8 @@ err("bad argument #1 to '?' (string expected, got no value)", function() return 
 err("bad argument #3 to '?' (string/function/table expected, got boolean)", function() return string.gsub("abc", "b", true) end)
 err("bad argument #3 to '?' (string/function/table expected, got nil)", function() return string.gsub("abc", "b", nil) end)
 err("bad argument #3 to '?' (string/function/table expected, got boolean)", function() return string.gsub("abc", "x", true) end)
+err("bad argument #4 to '?' (number has no integer representation)", function() return string.gsub("abc", "b", true, 1.5) end)
+err("bad argument #4 to '?' (number expected, got string)", function() return string.gsub("abc", "b", true, "x") end)
 err("bad argument #2 to '?' (string expected, got table)", function() return string.gsub("abc", {}, "x") end)
 eq(d((string.gsub("abc", "x", "y")) == "abc"), "true")
 eq(d((string.gsub(string.rep("ab", 10000), "b", "")) == string.rep("a", 10000)), "true")
@@ -228,4 +230,4 @@ local kv = {}
 for k, v in string.gmatch("a=1, b=2, c=3", "(%w+)=(%w+)") do kv[k] = v end
 eq(d(kv.a, kv.b, kv.c), "\"1\" \"2\" \"3\"")
 
-assert(state.checks == 162)
+assert(state.checks == 164)

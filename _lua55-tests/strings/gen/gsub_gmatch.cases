@@ -124,6 +124,8 @@ string.gsub()
 string.gsub("abc", "b", true)
 string.gsub("abc", "b", nil)
 string.gsub("abc", "x", true)
+string.gsub("abc", "b", true, 1.5)
+string.gsub("abc", "b", true, "x")
 string.gsub("abc", {}, "x")
 (string.gsub("abc", "x", "y")) == "abc"
 (string.gsub(string.rep("ab", 10000), "b", "")) == string.rep("a", 10000)

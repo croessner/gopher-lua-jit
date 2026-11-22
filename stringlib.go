@@ -560,11 +560,13 @@ func endPos55(L *LState, n int, def int64, l int) int64 {
 	return int64(l) + pos + 1
 }
 
+// str55Len implements string.len(s).
 func str55Len(L *LState) int {
 	L.Push(L.newInt(int64(len(strArg55(L, 1)))))
 	return 1
 }
 
+// str55Sub implements string.sub(s, i [, j]).
 func str55Sub(L *LState) int {
 	s := strArg55(L, 1)
 	start := posRelatI55(L.CheckInt64(2), len(s))
@@ -577,6 +579,7 @@ func str55Sub(L *LState) int {
 	return 1
 }
 
+// str55Byte implements string.byte(s [, i [, j]]).
 func str55Byte(L *LState) int {
 	s := strArg55(L, 1)
 	pi := L.OptInt64(2, 1)
@@ -596,6 +599,7 @@ func str55Byte(L *LState) int {
 	return n
 }
 
+// str55Char implements string.char(...).
 func str55Char(L *LState) int {
 	n := L.GetTop()
 	buf := make([]byte, n)
@@ -638,16 +642,19 @@ func mapASCII55(s string, lo, hi byte, delta int) string {
 	return s
 }
 
+// str55Lower implements string.lower(s) for the C locale.
 func str55Lower(L *LState) int {
 	L.Push(LString(mapASCII55(strArg55(L, 1), 'A', 'Z', 'a'-'A')))
 	return 1
 }
 
+// str55Upper implements string.upper(s) for the C locale.
 func str55Upper(L *LState) int {
 	L.Push(LString(mapASCII55(strArg55(L, 1), 'a', 'z', 'A'-'a')))
 	return 1
 }
 
+// str55Reverse implements string.reverse(s) (byte-wise).
 func str55Reverse(L *LState) int {
 	s := strArg55(L, 1)
 	out := make([]byte, len(s))
@@ -658,6 +665,7 @@ func str55Reverse(L *LState) int {
 	return 1
 }
 
+// str55Rep implements string.rep(s, n [, sep]).
 func str55Rep(L *LState) int {
 	s := strArg55(L, 1)
 	n := L.CheckInt64(2)
@@ -768,14 +776,18 @@ func str55FindAux(L *LState, find bool) int {
 	return 1
 }
 
+// str55Find implements string.find(s, pattern [, init [, plain]]).
 func str55Find(L *LState) int {
 	return str55FindAux(L, true)
 }
 
+// str55Match implements string.match(s, pattern [, init]).
 func str55Match(L *LState) int {
 	return str55FindAux(L, false)
 }
 
+// str55Gmatch implements string.gmatch(s, pattern [, init]). The returned
+// iterator keeps its own match state; a leading '^' is not an anchor.
 func str55Gmatch(L *LState) int {
 	s := strArg55(L, 1)
 	p := strArg55(L, 2)
@@ -854,10 +866,12 @@ func gsubAddValue55(L *LState, m *pm.Matcher, buf []byte, src string, s, e int, 
 	return append(buf, L.valueToString(value)...), true
 }
 
+// str55Gsub implements string.gsub(s, pattern, repl [, n]).
 func str55Gsub(L *LState) int {
 	src := strArg55(L, 1)
 	p := strArg55(L, 2)
 	repl := L.Get(3)
+	maxS := L.OptInt64(4, int64(len(src))+1) // max replacements
 	switch repl.(type) {
 	case LString, LNumber, LInteger, *LTable, *LFunction:
 	default:
@@ -867,7 +881,6 @@ func str55Gsub(L *LState) int {
 		}
 		L.ArgError(3, "string/function/table expected, got "+got)
 	}
-	maxS := L.OptInt64(4, int64(len(src))+1) // max replacements
 	anchor, pstart := patternStart55(p)
 	m := pm.NewMatcher(src, p)
 	var buf []byte
@@ -1361,6 +1374,7 @@ func fmtItem55(L *LState, buf []byte, form string, conv byte, arg int) []byte {
 	return buf
 }
 
+// str55Format implements string.format(formatstring, ...).
 func str55Format(L *LState) int {
 	format := strArg55(L, 1)
 	top := L.GetTop()
