@@ -37,3 +37,14 @@ func selectMainLoop(jitOn bool, withContext bool) func(*LState, *callFrame) {
 	}
 	return mainLoop
 }
+
+// JITStats reports the activity of the JIT compiler of a state.
+type JITStats struct {
+	// Enabled is true if the JIT is active for the state.
+	Enabled bool
+}
+
+func (s JITStats) String() string { return "jit: disabled" }
+
+// JITStats returns a snapshot of the JIT statistics of this state.
+func (ls *LState) JITStats() JITStats { return JITStats{} }

@@ -57,6 +57,9 @@ func newAllocator(size int) *allocator {
 	al.fheader = (*reflect.SliceHeader)(unsafe.Pointer(&al.fptrs))
 	al.scratchValue = LNumber(0)
 	al.scratchValueP = (*iface)(unsafe.Pointer(&al.scratchValue))
+	al.iptrs = make([]int64, 0, size)
+	al.iscratchValue = LInteger(1 << 40)
+	al.iscratchValueP = (*iface)(unsafe.Pointer(&al.iscratchValue))
 
 	return al
 }
