@@ -1656,6 +1656,7 @@ func (ls *LState) SetLocal(dbg *Debug, no int, lv LValue) string {
 	frame := dbg.frame
 	if name := ls.findLocal(frame, no); len(name) > 0 {
 		ls.reg.Set(frame.LocalBase+no-1, lv)
+		ls.jitLocalChanged()
 		return name
 	}
 	return ""
@@ -1865,6 +1866,39 @@ func (ls *LState) Call(nargs, nret int) {
 	ls.callR(nargs, nret, -1)
 }
 
+// callMessageHandler runs the message handler of a protected call for
+// the error aerr and returns the error the protected call reports. A
+// handler that fails itself is reported instead of its result; the
+// caller unwinds the state in either case.
+func (ls *LState) callMessageHandler(errfunc *LFunction, aerr *ApiError, oldpanic func(*LState)) (err error) {
+	ls.Push(errfunc)
+	ls.Push(aerr.Object)
+	ls.Panic = panicWithoutTraceback
+	defer func() {
+		ls.Panic = oldpanic
+		rcv := recover()
+		if rcv == nil {
+			return
+		}
+		if _, ok := rcv.(*ApiError); !ok {
+			err = newApiErrorS(ApiErrorPanic, fmt.Sprint(rcv))
+			if ls.Options.IncludeGoStackTrace {
+				buf := make([]byte, 4096)
+				runtime.Stack(buf, false)
+				err.(*ApiError).StackTrace = strings.Trim(string(buf), "\000") + ls.stackTrace(0)
+			}
+			return
+		}
+		err = rcv.(*ApiError)
+		err.(*ApiError).StackTrace = ls.stackTrace(0)
+		if ls.lang55 {
+			err = newApiErrorS(ApiErrorError, "error in error handling")
+		}
+	}()
+	ls.Call(1, 1)
+	return newApiError(ApiErrorError, ls.Get(-1))
+}
+
 func (ls *LState) PCall(nargs, nret int, errfunc *LFunction) (err error) {
 	err = nil
 	sp := ls.stack.Sp()
@@ -1892,34 +1926,7 @@ func (ls *LState) PCall(nargs, nret int, errfunc *LFunction) (err error) {
 				err = rcv.(*ApiError)
 			}
 			if errfunc != nil {
-				ls.Push(errfunc)
-				ls.Push(err.(*ApiError).Object)
-				ls.Panic = panicWithoutTraceback
-				defer func() {
-					ls.Panic = oldpanic
-					rcv := recover()
-					if rcv != nil {
-						if _, ok := rcv.(*ApiError); !ok {
-							err = newApiErrorS(ApiErrorPanic, fmt.Sprint(rcv))
-							if ls.Options.IncludeGoStackTrace {
-								buf := make([]byte, 4096)
-								runtime.Stack(buf, false)
-								err.(*ApiError).StackTrace = strings.Trim(string(buf), "\000") + ls.stackTrace(0)
-							}
-						} else {
-							err = rcv.(*ApiError)
-							err.(*ApiError).StackTrace = ls.stackTrace(0)
-							if ls.lang55 {
-								err = newApiErrorS(ApiErrorError, "error in error handling")
-							}
-						}
-						ls.stack.SetSp(sp)
-						ls.currentFrame = ls.stack.Last()
-						ls.reg.SetTop(base)
-					}
-				}()
-				ls.Call(1, 1)
-				err = newApiError(ApiErrorError, ls.Get(-1))
+				err = ls.callMessageHandler(errfunc, err.(*ApiError), oldpanic)
 			} else if len(err.(*ApiError).StackTrace) == 0 {
 				err.(*ApiError).StackTrace = ls.stackTrace(0)
 			}

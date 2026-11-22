@@ -616,6 +616,7 @@ func debug55SetLocal(L *LState) int {
 		return 1
 	}
 	L1.reg.Set(reg, value)
+	L1.jitLocalChanged()
 	L.Push(LString(name))
 	return 1
 }

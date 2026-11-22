@@ -15,6 +15,9 @@ type Block struct{}
 
 var errUnsupported = errors.New("codecache: native code is not supported on this platform")
 
+// MappedSize returns the number of bytes Alloc maps for n bytes of code.
+func MappedSize(n int) int { return n }
+
 // Alloc always fails on unsupported platforms.
 func Alloc(code []byte) (*Block, error) { return nil, errUnsupported }
 

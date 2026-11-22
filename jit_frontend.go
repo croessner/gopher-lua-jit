@@ -81,6 +81,10 @@ type exitMeta struct {
 	// exit is a failed guard (-1 for none); fbWhat selects what to record.
 	fbSlot int16
 	fbWhat uint8
+	// top is the register behind the last value of an open result list
+	// that the instruction at the exit consumes (-1 for none): the
+	// interpreter finds the end of such a list through the registry top.
+	top int16
 }
 
 // Value kinds used for speculation and feedback.
@@ -198,7 +202,12 @@ type jitFrontend struct {
 	restart    bool
 	// openTop is the register behind the last value of an open result
 	// list produced by the previous instruction (-1 if there is none).
-	openTop int
+	// While the consumer of the list is translated it is kept in
+	// pendingTop, so that every hand-over to the interpreter at that
+	// instruction restores the registry top.
+	openTop    int
+	pendingTop int
+
 	// statistics for the profitability check
 	nativeOps int
 	callouts  int
@@ -248,6 +257,7 @@ func (fe *jitFrontend) translate() (err error) {
 	}()
 	fe.f = jit.NewFunc(fmt.Sprintf("%s:%d@%d", fe.proto.SourceName, fe.proto.LineDefined, fe.entryPC))
 	fe.openTop = -1
+	fe.pendingTop = -1
 	fe.meta = fe.meta[:0]
 	fe.consts = fe.consts[:0]
 	fe.keep = fe.keep[:0]
@@ -280,6 +290,8 @@ func (fe *jitFrontend) translate() (err error) {
 		if !fe.startBlock(tb) {
 			continue
 		}
+		fe.openTop, fe.pendingTop = -1, -1
+
 		for p := pc; ; {
 			fe.pc = p
 			next, ended := fe.inst(p)
@@ -486,7 +498,12 @@ func (fe *jitFrontend) speculateLoopStep() {
 
 // newExit creates an exit with front end data.
 func (fe *jitFrontend) newExit(kind jit.ExitKind, pc int, m exitMeta) *jit.Exit {
+	m.top = -1
+	if fe.pendingTop >= 0 && pc == fe.pc && (m.kind == emDeopt || m.kind == emUnsupported || m.kind == emInst) {
+		m.top = int16(fe.pendingTop)
+	}
 	x := fe.f.NewExit(kind, pc)
+
 	x.Data = len(fe.meta)
 	fe.meta = append(fe.meta, m)
 	return x
@@ -940,6 +957,7 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 	next = pc + 1
 	openTop := fe.openTop
 	fe.openTop = -1
+	fe.pendingTop = openTop
 	switch op {
 	case OP_MOVE, OP_MOVEN:
 		fe.move(A, B)
@@ -1057,10 +1075,6 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 			B = openTop - A
 		}
 		if !fe.intrinsicCall(A, B, C) {
-			if opGetArgB(inst) == 0 {
-				fe.unsupported()
-				return 0, true
-			}
 			return fe.generic(pc, op)
 		}
 	case OP_SETTABLE:
@@ -1090,7 +1104,7 @@ func (fe *jitFrontend) generic(pc, op int) (int, bool) {
 		fe.calloutInst()
 		return next, false
 	case OP_SETLIST:
-		if B != 0 && C != 0 {
+		if (B != 0 || fe.pendingTop >= 0) && C != 0 {
 			fe.calloutInst()
 			return next, false
 		}
@@ -1098,7 +1112,9 @@ func (fe *jitFrontend) generic(pc, op int) (int, bool) {
 		// calls of Go functions complete inside the callout; when the
 		// callee turns out to be a Lua function the driver hands the
 		// frame over to the interpreter
-		if B != 0 && C != 0 {
+		// (an open argument list is fine if its end is known: the
+		// callout restores the registry top)
+		if (B != 0 || fe.pendingTop >= 0) && C != 0 {
 			fe.calloutInst()
 			for r := A; r < fe.nslots; r++ {
 				fe.st[r] = slotState{}
@@ -1393,12 +1409,18 @@ func (fe *jitFrontend) arith(op, a, b, c int) bool {
 	return false
 }
 
-// floatExactInt converts a number to an integer, deoptimizing unless it
-// is a float with an exact integer value.
+// floatExactInt converts a number that takes part in float arithmetic to
+// an integer, deoptimizing unless its float value is an exact integer.
+// An integer operand is first converted to a float like the interpreter
+// does, which rounds beyond 2^53.
 func (fe *jitFrontend) floatExactInt(v *jit.Value, kind slotKind) *jit.Value {
 	if kind == skInt {
-		return v
+		if v.IsConst() && v.Aux >= -(1<<53) && v.Aux <= 1<<53 {
+			return v
+		}
+		v = fe.op(jit.OpIntToFloat, jit.TFloat, v)
 	}
+
 	fe.guard(fe.op(jit.OpFLt, jit.TInt, v, fe.f.ConstFloat(fe.cur, 9223372036854775808.0)), -1, 0)
 	i := fe.op(jit.OpFloatToInt, jit.TInt, v)
 	fe.guard(fe.op(jit.OpFEq, jit.TInt, fe.op(jit.OpIntToFloat, jit.TFloat, i), v), -1, 0)
@@ -1408,16 +1430,22 @@ func (fe *jitFrontend) floatExactInt(v *jit.Value, kind slotKind) *jit.Value {
 // floatModIntegral translates a float modulo whose operands hold integral
 // values, the usual case in Lua 5.1 code where every number is a float.
 // The remainder is computed with integers, which is exact. Other operand
-// values deoptimize, as does a zero result of a negative dividend, which
-// must be negative zero.
+// values deoptimize, as does a zero result whose sign is not known to be
+// positive: for a negative dividend it is negative zero, and a float
+// zero dividend keeps its sign.
 func (fe *jitFrontend) floatModIntegral(a int, x *jit.Value, xk slotKind, y *jit.Value, yk slotKind) bool {
 	ix := fe.floatExactInt(x, xk)
 	iy := fe.floatExactInt(y, yk)
 	fe.guard(fe.op(jit.OpNe, jit.TInt, iy, fe.constInt(0)), -1, 0)
 	r := fe.op(jit.OpMod, jit.TInt, ix, iy)
 	nonZero := fe.op(jit.OpNe, jit.TInt, r, fe.constInt(0))
-	nonNegative := fe.op(jit.OpLe, jit.TInt, fe.constInt(0), ix)
-	fe.guard(fe.op(jit.OpOr, jit.TInt, nonZero, nonNegative), -1, 0)
+	cmp := jit.OpLt
+	if xk == skInt {
+		// an integer zero converts to positive zero
+		cmp = jit.OpLe
+	}
+	positive := fe.op(cmp, jit.TInt, fe.constInt(0), ix)
+	fe.guard(fe.op(jit.OpOr, jit.TInt, nonZero, positive), -1, 0)
 	fe.set(a, skFloat, fe.op(jit.OpIntToFloat, jit.TFloat, r))
 	return true
 }
@@ -1799,15 +1827,19 @@ func (fe *jitFrontend) setTable(a, b, c int) bool {
 	jumpIR(fe.cur, join)
 
 	// append: only if the element goes right behind the last one, the
-	// capacity suffices and no metatable (__newindex) is involved
+	// capacity suffices, the new key is below MaxArrayIndex (larger keys
+	// live in the hash part) and no metatable (__newindex) is involved
 	fe.cur = grow
 	fe.guard(fe.op(jit.OpEq, jit.TInt, idx, n), -1, 0)
 	capv := fe.load(jit.OpLoad64, jit.TInt, tp, off+sliceOffCap)
 	fe.guard(fe.op(jit.OpULt, jit.TInt, n, capv), -1, 0)
+	newLen := fe.op(jit.OpAdd, jit.TInt, n, fe.constInt(1))
+	limit := fe.load(jit.OpLoad64, jit.TInt, fe.constInt(int64(uintptr(unsafe.Pointer(&MaxArrayIndex)))), 0)
+	fe.guard(fe.op(jit.OpLt, jit.TInt, newLen, limit), -1, 0)
 	mt := fe.load(jit.OpLoad64, jit.TInt, tp, int64(offTableMetatable))
 	fe.guard(fe.op(jit.OpEq, jit.TInt, mt, fe.constInt(int64(itabNil))), -1, 0)
 	fe.f.NewValue(fe.cur, storeOp, jit.TInt, 0, addr, val)
-	fe.f.NewValue(fe.cur, jit.OpStore64, jit.TInt, off+sliceOffLen, tp, fe.op(jit.OpAdd, jit.TInt, n, fe.constInt(1)))
+	fe.f.NewValue(fe.cur, jit.OpStore64, jit.TInt, off+sliceOffLen, tp, newLen)
 	jumpIR(fe.cur, join)
 
 	fe.cur = join

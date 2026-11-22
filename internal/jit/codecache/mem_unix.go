@@ -26,13 +26,19 @@ var (
 // pageSize is the allocation granularity of executable memory.
 var pageSize = syscall.Getpagesize()
 
+// MappedSize returns the number of bytes Alloc maps for n bytes of code.
+func MappedSize(n int) int {
+	return (n + pageSize - 1) &^ (pageSize - 1)
+}
+
 // Alloc copies code into freshly mapped memory and makes it executable.
 // The memory is writable only while it is being filled (W^X).
 func Alloc(code []byte) (*Block, error) {
 	if len(code) == 0 {
 		return nil, errors.New("codecache: empty code")
 	}
-	size := (len(code) + pageSize - 1) &^ (pageSize - 1)
+	size := MappedSize(len(code))
+
 	mem, err := syscall.Mmap(-1, 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_ANON|syscall.MAP_PRIVATE)
 	if err != nil {
 		return nil, err

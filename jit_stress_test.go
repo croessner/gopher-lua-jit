@@ -215,10 +215,22 @@ func codecachePageSize() int {
 	return b.Size()
 }
 
+// requireNoMappedCode fails the test if the state still owns executable
+// memory. (The process wide counters of the code cache cannot be used
+// for this: finalizers of other states change them concurrently.)
+func requireNoMappedCode(t *testing.T, L *LState) {
+	t.Helper()
+	if n := len(L.G.jit.mem.blocks); n != 0 {
+		t.Fatalf("%d blocks of executable memory are still mapped", n)
+	}
+	if st := L.JITStats(); st.CodeBytes != 0 || st.LiveUnits != 0 {
+		t.Fatalf("code survived: %s", st)
+	}
+}
+
 // TestJITCloseReleasesCode checks that closing a state unmaps its code.
 func TestJITCloseReleasesCode(t *testing.T) {
 	skipWithoutJIT(t)
-	before := codecache.LiveBytes()
 	for i := 0; i < 50; i++ {
 		L := NewState(jitTestOptions(Lua55, 1))
 		if err := L.DoString(`local s = 0 for i = 1, 100 do for j = 1, 10 do s = s + i * j end end`); err != nil {
@@ -228,9 +240,7 @@ func TestJITCloseReleasesCode(t *testing.T) {
 			t.Fatalf("no code was mapped: %s", st)
 		}
 		L.Close()
-	}
-	if after := codecache.LiveBytes(); after != before {
-		t.Fatalf("executable memory leaked: %d bytes", after-before)
+		requireNoMappedCode(t, L)
 	}
 }
 

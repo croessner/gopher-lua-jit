@@ -118,7 +118,9 @@ func jitBackEdge(L *LState, cf *callFrame, baseframe *callFrame) int {
 	}
 	fn := cf.Fn
 	jp := fn.jitp
-	if jp == nil {
+	if jp == nil || jp.js != js {
+		// (a function that is moved to another state must not run the
+		// code of the state it came from)
 		jp = js.protoFor(fn.Proto)
 		fn.jitp = jp
 	}
@@ -134,7 +136,7 @@ func jitBackEdge(L *LState, cf *callFrame, baseframe *callFrame) int {
 		return 0
 	}
 	lp.count++
-	if lp.count < js.threshold {
+	if lp.count < js.threshold || js.stopped {
 		return 0
 	}
 	lp.count = 0
@@ -204,13 +206,19 @@ func (js *jitState) compile(L *LState, cf *callFrame, jp *jitProto, lp *jitLoop)
 		js.blacklist(lp, err.Error())
 		return nil
 	}
-	if js.codeBytes+len(code.Bytes) > js.maxCode {
+	size := codecache.MappedSize(len(code.Bytes))
+	if size > js.maxCode {
+		js.stats.CompileFailed++
+		js.blacklist(lp, fmt.Sprintf("native code of %d bytes exceeds the code cache limit", size))
+		return nil
+	}
+	if js.codeBytes+size > js.maxCode {
 		js.flushAll("limit reached")
 		if js.stopped {
 			return nil
 		}
 	}
-	block, err := codecache.Alloc(code.Bytes)
+	block, err := js.mem.alloc(code.Bytes)
 	if err != nil {
 		// executable memory is unavailable (for example under a hardened
 		// runtime without the JIT entitlement): fall back for good
@@ -264,6 +272,20 @@ func (ls *LState) jitLeave(th *jitThread) {
 	u.active--
 	if u.dead && u.active == 0 {
 		ls.G.jit.release(u)
+	}
+}
+
+// jitOpenTop restores the registry top for an instruction that consumes
+// an open result list produced by native code. Registers above the new
+// top are left alone: native code may still hold their values.
+func (ls *LState) jitOpenTop(m *exitMeta, base int) {
+	if m.top < 0 {
+		return
+	}
+	if top := base + int(m.top); ls.reg.top < top {
+		ls.reg.SetTop(top)
+	} else {
+		ls.reg.top = top
 	}
 }
 
@@ -336,7 +358,7 @@ func (ls *LState) jitRun(cf *callFrame, u *jitUnit, baseframe *callFrame) int {
 	}
 	depth := len(th.acts)
 	base := cf.LocalBase
-	if depth >= jitMaxDepth || base+u.nslots > len(ls.reg.array) {
+	if u.dead || depth >= jitMaxDepth || base+u.nslots > len(ls.reg.array) {
 		return 0
 	}
 	if u.env != nil && functionEnv(cf.Fn) != u.env {
@@ -404,9 +426,11 @@ loop:
 		case emInst:
 			js.stats.Callouts++
 			ls.jitApply(u, x.Entries, frame, base)
+			ls.jitOpenTop(m, base)
 			pc := x.PC
 			inst := cf.Fn.Proto.Code[pc]
 			cf.Pc = pc + 1
+			localGen := js.localGen
 			if jumpTable[int(inst>>26)](ls, inst, baseframe) == 1 {
 				result = 1
 				break loop
@@ -428,9 +452,11 @@ loop:
 				}
 			}
 			u.callouts++
-			if ls.currentFrame != cf || u.dead || (u.env != nil && functionEnv(cf.Fn) != u.env) {
+			if ls.currentFrame != cf || u.dead || js.localGen != localGen || (u.env != nil && functionEnv(cf.Fn) != u.env) {
 				// the interpreter continues: a new frame was pushed, the
-				// unit was discarded while the callout ran, or the
+				// unit was discarded while the callout ran, a debugger
+				// changed a local variable (the registry is up to date
+				// after a callout, the unboxed copies are not), or the
 				// environment of the function was replaced
 				break loop
 			}
@@ -444,7 +470,9 @@ loop:
 			// deoptimization: the interpreter re-executes the instruction
 			js.stats.Deopts++
 			ls.jitApply(u, x.Entries, frame, base)
+			ls.jitOpenTop(m, base)
 			cf.Pc = x.PC
+
 			ls.jitExitNote(u, id, m, base, fuel-frame[jit.CtxFuel/8])
 			break loop
 		}

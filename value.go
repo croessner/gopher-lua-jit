@@ -229,6 +229,10 @@ type LState struct {
 	typedArrays bool
 	// jitOn is true if this thread runs with the JIT enabled main loop.
 	jitOn bool
+	// jitOwner is true for the state that created the JIT state (the one
+	// returned by NewState): closing it releases the native code.
+	jitOwner bool
+
 	// nny counts the nested interpreter loops started by Go code on this
 	// thread; the thread cannot yield while it is non-zero.
 	nny int

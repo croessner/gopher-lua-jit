@@ -3,7 +3,9 @@ package lua
 import (
 	"fmt"
 	"io"
+	"runtime"
 	"sync"
+
 	"time"
 	"unsafe"
 
@@ -24,13 +26,14 @@ type JITOptions struct {
 	Threshold int
 	// MaxCodeBytes bounds the executable memory mapped for one state
 	// (shared by its coroutines). When the limit is reached all compiled
-	// code of the state is discarded and compilation starts over. Zero
-	// selects the default (16 MiB).
+	// code of the state is discarded and compilation starts over; a loop
+	// whose code alone exceeds the limit is left to the interpreter. Zero
+	// or a negative value selects the default (16 MiB).
 	MaxCodeBytes int
 	// SafePointInterval is the number of loop iterations native code may
 	// execute before it returns to Go to honor garbage collection,
-	// preemption and context cancellation. Zero selects the default
-	// (65536).
+	// preemption and context cancellation. Zero or a negative value
+	// selects the default (65536); values above 2^24 are reduced to 2^24.
 	SafePointInterval int
 	// Log, if not nil, receives one line per JIT event (compilation,
 	// invalidation, blacklisting). It is meant for diagnostics.
@@ -84,6 +87,10 @@ const (
 	jitDefaultThreshold = 50
 	jitDefaultMaxCode   = 16 << 20
 	jitDefaultFuel      = 1 << 16
+	// jitMaxFuel bounds the safe point interval: native code must return
+	// to the Go runtime regularly, whatever the configuration says.
+	jitMaxFuel = 1 << 24
+
 	// jitMaxCompiles is the number of times one loop may be compiled
 	// before it is blacklisted.
 	jitMaxCompiles = 6
@@ -110,14 +117,58 @@ type jitState struct {
 
 	protos    map[*FunctionProto]*jitProto
 	units     map[*jitUnit]struct{}
+	mem       *jitMemory
 	codeBytes int
 	flushes   int
-	stopped   bool // no further compilation
-	stats     JITStats
+	// localGen changes whenever a debugger modifies a local variable;
+	// native code then hands its frame back to the interpreter.
+	localGen uint32
+	stopped  bool // no further compilation
+	stats    JITStats
+}
+
+// jitMemory owns the executable memory of a state. It deliberately holds
+// no reference back to the state, so that a finalizer can release the
+// memory of a state that is dropped without Close.
+type jitMemory struct {
+	blocks map[*codecache.Block]struct{}
+}
+
+// newJITMemory returns an empty memory set that frees itself when it
+// becomes unreachable.
+func newJITMemory() *jitMemory {
+	m := &jitMemory{blocks: make(map[*codecache.Block]struct{})}
+	runtime.SetFinalizer(m, (*jitMemory).freeAll)
+	return m
+}
+
+// alloc maps code as a new executable block.
+func (m *jitMemory) alloc(code []byte) (*codecache.Block, error) {
+	b, err := codecache.Alloc(code)
+	if err == nil {
+		m.blocks[b] = struct{}{}
+	}
+	return b, err
+}
+
+// free unmaps a block.
+func (m *jitMemory) free(b *codecache.Block) {
+	delete(m.blocks, b)
+	b.Free()
+}
+
+// freeAll unmaps every block that is still mapped.
+func (m *jitMemory) freeAll() {
+	for b := range m.blocks {
+		b.Free()
+	}
+	m.blocks = nil
 }
 
 // jitProto is the per-state compilation state of a function prototype.
 type jitProto struct {
+	// js is the state the compiled code belongs to.
+	js    *jitState
 	proto *FunctionProto
 	// loops is indexed by the pc of the loop header.
 	loops []*jitLoop
@@ -213,10 +264,11 @@ func (ls *LState) initJIT() {
 	js := &jitState{
 		threshold: int32(opts.Threshold),
 		maxCode:   opts.MaxCodeBytes,
-		fuel:      uint64(opts.SafePointInterval),
+		fuel:      jitDefaultFuel,
 		log:       opts.Log,
 		protos:    make(map[*FunctionProto]*jitProto),
 		units:     make(map[*jitUnit]struct{}),
+		mem:       newJITMemory(),
 	}
 	if js.threshold <= 0 {
 		js.threshold = jitDefaultThreshold
@@ -224,11 +276,13 @@ func (ls *LState) initJIT() {
 	if js.maxCode <= 0 {
 		js.maxCode = jitDefaultMaxCode
 	}
-	if js.fuel == 0 {
-		js.fuel = jitDefaultFuel
+	if n := opts.SafePointInterval; n > 0 {
+		js.fuel = uint64(intMin(n, jitMaxFuel))
 	}
 	ls.G.jit = js
 	ls.jitOn = true
+	ls.jitOwner = true
+
 	ls.typedArrays = true
 	ls.G.Registry.typedOK = true
 	ls.G.Global.typedOK = true
@@ -236,23 +290,29 @@ func (ls *LState) initJIT() {
 	ls.mainLoop = selectMainLoop(true, ls.ctx != nil)
 }
 
-// closeJIT releases all native code of the state. It is called when the
-// main thread is closed.
+// closeJIT releases the native code of the state and stops compilation.
+// It is called when the state that was created with NewState is closed;
+// closing one of its threads has no effect. Threads that are used after
+// that fall back to the interpreter. Code that is executing right now
+// (Close was called from inside a loop) is released when it returns.
 func (ls *LState) closeJIT() {
 	js := ls.G.jit
-	if js == nil || ls.G.MainThread != nil && ls.G.MainThread != ls {
+	if js == nil || !ls.jitOwner {
 		return
 	}
-	for u := range js.units {
-		u.dead = true
-		if u.block != nil {
-			u.block.Free()
-			u.block = nil
-		}
-	}
-	js.units = make(map[*jitUnit]struct{})
-	js.codeBytes = 0
 	js.stopped = true
+	for u := range js.units {
+		js.discard(u)
+	}
+}
+
+// jitLocalChanged tells the JIT that a debugger wrote a local variable
+// into the registry: native code that runs further down the call stack
+// must not go on with its unboxed copy of the variable.
+func (ls *LState) jitLocalChanged() {
+	if js := ls.G.jit; js != nil {
+		js.localGen++
+	}
 }
 
 // JITStats returns a snapshot of the JIT statistics of this state.
@@ -288,7 +348,7 @@ func (js *jitState) logf(format string, args ...interface{}) {
 func (js *jitState) protoFor(p *FunctionProto) *jitProto {
 	jp := js.protos[p]
 	if jp == nil {
-		jp = &jitProto{proto: p, loops: make([]*jitLoop, len(p.Code)+1), feedback: make(map[feedbackKey]uint8)}
+		jp = &jitProto{js: js, proto: p, loops: make([]*jitLoop, len(p.Code)+1), feedback: make(map[feedbackKey]uint8)}
 		js.protos[p] = jp
 	}
 	return jp
@@ -316,7 +376,7 @@ func (js *jitState) discard(u *jitUnit) {
 func (js *jitState) release(u *jitUnit) {
 	if u.block != nil {
 		js.codeBytes -= u.block.Size()
-		u.block.Free()
+		js.mem.free(u.block)
 		u.block = nil
 	}
 }

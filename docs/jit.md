@@ -92,15 +92,19 @@ Not compiled (the loop stays in the interpreter):
 - **Code memory**: each state maps at most `MaxCodeBytes` of executable
   memory (page granular; a unit occupies at least one page). When the limit
   is reached all units of the state are discarded and compilation starts
-  over; after eight such flushes the state stops compiling.
-  `L.Close()` unmaps everything.
+  over; after eight such flushes the state stops compiling. A loop whose
+  code alone exceeds the limit is left to the interpreter.
+  `L.Close()` on the state returned by `NewState` unmaps the code (threads
+  that are still used afterwards run in the interpreter); the memory of a
+  state that is dropped without `Close` is unmapped by a finalizer.
 - **Compilation**: a loop is compiled at most six times (recompilation
   happens when type guards keep failing); regions are limited to 3000
   basic blocks. A compiler failure of any kind, including an internal
   panic, only blacklists the loop.
 - **Native run time**: native code returns to Go at least every
-  `SafePointInterval` loop iterations. At these points context cancellation
-  and deadlines (`L.SetContext`) take effect.
+  `SafePointInterval` loop iterations (at most 2^24, whatever is
+  configured). At these points context cancellation and deadlines
+  (`L.SetContext`) take effect.
 - **Nesting**: at most 64 nested native activations per thread; deeper
   nesting runs in the interpreter.
 
@@ -134,5 +138,10 @@ not been verified:
   longer if the loop body is slow and the interval is raised).
 - CPU profiles attribute native code to "external code"; Go stack traces
   taken while native code runs do not show Lua frames.
+- Debugger access to a frame that runs native code: `debug.setlocal` /
+  `L.SetLocal` take effect (the frame continues in the interpreter), but
+  `debug.getlocal` / `L.GetLocal` may show an outdated value for a local
+  that is not read again later, because native code only writes back the
+  variables that are still live.
 - Compiled code is per state. A pool of states compiles hot loops once per
   state.
