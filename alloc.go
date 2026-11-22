@@ -18,9 +18,19 @@ var _uv uintptr
 
 var preloads [int(preloadLimit)]LValue
 
+const (
+	ipreloadMin = -128
+	ipreloadMax = 1023
+)
+
+var ipreloads [ipreloadMax - ipreloadMin + 1]LValue
+
 func init() {
 	for i := 0; i < int(preloadLimit); i++ {
 		preloads[i] = LNumber(i)
+	}
+	for i := range ipreloads {
+		ipreloads[i] = LInteger(i + ipreloadMin)
 	}
 }
 
@@ -32,6 +42,10 @@ type allocator struct {
 
 	scratchValue  LValue
 	scratchValueP *iface
+
+	iptrs          []int64
+	iscratchValue  LValue
+	iscratchValueP *iface
 }
 
 func newAllocator(size int) *allocator {
@@ -76,4 +90,19 @@ func (al *allocator) LNumber2I(v LNumber) LValue {
 	al.scratchValueP.word = unsafe.Pointer(fptr)
 
 	return al.scratchValue
+}
+
+// LInteger2I is the LInteger counterpart of LNumber2I: it boxes an integer
+// into an LValue using shared preloaded values for small integers and bulk
+// allocated pages for everything else.
+func (al *allocator) LInteger2I(v LInteger) LValue {
+	if v >= ipreloadMin && v <= ipreloadMax {
+		return ipreloads[int(v)-ipreloadMin]
+	}
+	if cap(al.iptrs) == len(al.iptrs) {
+		al.iptrs = make([]int64, 0, al.size)
+	}
+	al.iptrs = append(al.iptrs, int64(v))
+	al.iscratchValueP.word = unsafe.Pointer(&al.iptrs[len(al.iptrs)-1])
+	return al.iscratchValue
 }
