@@ -22,6 +22,9 @@ type parser struct {
 
 	prevLine int // line of the most recently consumed token
 	depth    int // nesting depth guard
+	// paren records expressions that were written in parentheses; they
+	// are not valid assignment targets.
+	paren map[ast.Expr]bool
 }
 
 const maxParseDepth = 200
@@ -315,7 +318,7 @@ func (p *parser) parseStatement() ast.Stmt {
 			p.next()
 			name := p.expectName()
 			fn := p.parseFuncBody(tok.Pos.Line)
-			st := &ast.LocalAssignStmt{Names: []string{name.Str}, Exprs: []ast.Expr{fn}}
+			st := &ast.LocalAssignStmt{Names: []string{name.Str}, Exprs: []ast.Expr{fn}, IsFunction: true}
 			st.SetLine(tok.Pos.Line)
 			st.SetLastLine(fn.LastLine())
 			return st
@@ -538,6 +541,9 @@ func (p *parser) parseExprStatement() ast.Stmt {
 		for _, e := range lhs {
 			switch e.(type) {
 			case *ast.IdentExpr, *ast.AttrGetExpr:
+				if p.paren[e] {
+					p.syntaxError()
+				}
 			default:
 				p.syntaxError()
 			}
@@ -735,6 +741,12 @@ func (p *parser) parsePrimaryExpr() ast.Expr {
 		case *ast.FuncCallExpr:
 			ex.AdjustRet = true
 			return inner
+		}
+		if p.lua55 {
+			if p.paren == nil {
+				p.paren = make(map[ast.Expr]bool)
+			}
+			p.paren[inner] = true
 		}
 		inner.SetLine(tok.Pos.Line)
 		return inner

@@ -140,7 +140,7 @@ func arithSlow(L *LState, opcode int, lhs, rhs LValue) LValue {
 		case OP_MOD:
 			L.RaiseError("%s", "attempt to perform 'n%%0'")
 		case OP_IDIV:
-			L.RaiseError("attempt to perform 'n//0'")
+			L.RaiseError("attempt to divide by zero")
 		default:
 			L.RaiseError("number has no integer representation")
 		}
@@ -324,9 +324,9 @@ func forError(L *LState, what string, v LValue) {
 	if L.lang55 {
 		name := what
 		if what == "init" {
-			name = "initial"
+			name = "initial value"
 		}
-		L.RaiseError("'for' %s value must be a number", name)
+		L.RaiseError("bad 'for' %s (number expected, got %s)", name, L.typeNameOf(v))
 	}
 	L.RaiseError("for statement %s must be a number", what)
 }
@@ -406,7 +406,10 @@ func forPrep(L *LState, ra int) bool {
 	reg := L.reg
 	initv := forNumber(L, "init", reg.array[ra])
 	stepv := forNumber(L, "step", reg.array[ra+2])
-	if init, ok := initv.(LInteger); ok {
+	// an initial value or step given as a string makes it a float loop
+	_, initStr := reg.array[ra].(LString)
+	_, stepStr := reg.array[ra+2].(LString)
+	if init, ok := initv.(LInteger); ok && !initStr && !stepStr {
 		if step, ok := stepv.(LInteger); ok {
 			if step == 0 {
 				L.RaiseError("'for' step is zero")
@@ -473,7 +476,7 @@ type tbcEntry struct {
 // markTBC registers the value in registry index idx as to-be-closed.
 func (ls *LState) markTBC(idx int, name string) {
 	v := ls.reg.array[idx]
-	if v == LNil || v == LFalse {
+	if v == nil || v == LNil || v == LFalse {
 		return
 	}
 	if ls.metaOp1(v, "__close") == LNil {
@@ -511,9 +514,17 @@ func (ls *LState) callClose(v LValue, errObj LValue) {
 // handlers replace the original error. It must be called after the call
 // stack has been unwound to the protected call.
 func (ls *LState) closeTBCOnError(level int, err *ApiError) *ApiError {
-	for n := len(ls.tbc); n > 0 && ls.tbc[n-1].idx >= level; n = len(ls.tbc) {
-		entry := ls.tbc[n-1]
-		ls.tbc = ls.tbc[:n-1]
+	// detach the entries first: the close handlers run in registry space
+	// that the unwound frames used, so the stale indices must not be
+	// mistaken for variables of the handler frames
+	first := len(ls.tbc)
+	for first > 0 && ls.tbc[first-1].idx >= level {
+		first--
+	}
+	pending := append([]tbcEntry(nil), ls.tbc[first:]...)
+	ls.tbc = ls.tbc[:first]
+	for n := len(pending) - 1; n >= 0; n-- {
+		entry := pending[n]
 		op := ls.metaOp1(entry.val, "__close")
 		if op == LNil {
 			continue
@@ -537,6 +548,34 @@ func (ls *LState) closeTBCOnError(level int, err *ApiError) *ApiError {
 }
 
 /* }}} */
+
+// varargFromTable implements "..." in a function with a named vararg
+// table: the values are read from the table, which the function may have
+// modified. ra is the first destination register and b the B operand of
+// OP_VARARG (number of wanted values + 1, or 0 for all).
+func varargFromTable(L *LState, ra, b int, v LValue) {
+	tb, ok := v.(*LTable)
+	if !ok {
+		L.RaiseError("vararg table has no proper 'n'")
+	}
+	n, ok := tb.RawGetString("n").(LInteger)
+	if !ok || n < 0 || int64(n) > int64(L.reg.maxSize+len(L.reg.array)) {
+		L.RaiseError("vararg table has no proper 'n'")
+	}
+	nwant := b - 1
+	if b == 0 {
+		nwant = int(n)
+	}
+	reg := L.reg
+	reg.SetTop(ra + nwant)
+	for i := 0; i < nwant; i++ {
+		if i < int(n) {
+			reg.array[ra+i] = tb.RawGetInt(i + 1)
+		} else {
+			reg.array[ra+i] = LNil
+		}
+	}
+}
 
 // varargTable builds the table of a Lua 5.5 named vararg parameter.
 func varargTable(L *LState, cf *callFrame) *LTable {
@@ -596,4 +635,12 @@ func returnCloseTBC(L *LState, lbase, ra, b int) {
 		reg.top = ra + b - 1
 	}
 	L.closeTBC(lbase, LNil)
+}
+
+// chainError raises the error for a metamethod chain that is too long.
+func (ls *LState) chainError(event, legacy string) {
+	if ls.lang55 {
+		ls.RaiseError("'%s' chain too long; possible loop", event)
+	}
+	ls.RaiseError("%s", legacy)
 }

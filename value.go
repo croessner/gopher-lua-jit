@@ -229,6 +229,9 @@ type LState struct {
 	typedArrays bool
 	// jitOn is true if this thread runs with the JIT enabled main loop.
 	jitOn bool
+	// nny counts the nested interpreter loops started by Go code on this
+	// thread; the thread cannot yield while it is non-zero.
+	nny int
 	// tbc is the list of to-be-closed variables (registry indices) of this
 	// thread, in ascending order.
 	tbc []tbcEntry

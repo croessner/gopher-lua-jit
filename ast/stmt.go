@@ -26,6 +26,9 @@ type LocalAssignStmt struct {
 	// Attribs holds the attribute ("", "const" or "close") of each name.
 	// It is nil when no name has an attribute (Lua 5.4+).
 	Attribs []string
+	// IsFunction is true for the "local function name" form, where the
+	// name is in scope inside the function body.
+	IsFunction bool
 }
 
 // GlobalDeclStmt is a Lua 5.5 global declaration:

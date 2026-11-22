@@ -642,6 +642,9 @@ type funcContext struct {
 	lua55 bool
 	// hasTBC is set once the function declared a to-be-closed variable.
 	hasTBC bool
+	// varargTable is the register of the named vararg table plus one, or
+	// zero if the function has none (Lua 5.5).
+	varargTable int
 }
 
 func newFuncContext(sourcename string, parent *funcContext) *funcContext {
@@ -680,6 +683,13 @@ func (fc *funcContext) AddUnresolvedGoto(label *gotoLabelDesc) {
 }
 
 func (fc *funcContext) AddNamedLabel(label *gotoLabelDesc) {
+	if fc.lua55 {
+		for b := fc.Block.Parent; b != nil; b = b.Parent {
+			if old := b.GetLabel(label.Name); old != nil {
+				raiseCompileError(fc, label.Line+1, "label '%s' already defined on line %d", label.Name, old.Line)
+			}
+		}
+	}
 	if old := fc.Block.AddLabel(label); old != nil {
 		raiseCompileError(fc, label.Line+1, "label '%s' already defined on line %d", label.Name, old.Line)
 	}
@@ -942,10 +952,8 @@ func compileGlobalDeclStmt(context *funcContext, stmt *ast.GlobalDeclStmt) { // 
 		compileRegAssignment(context, stmt.Names, stmt.Exprs, reg, n, line)
 		tmp := reg + n
 		for i, name := range stmt.Names {
-			if !stmt.IsFunc {
-				emitGetGlobal(context, tmp, name, line)
-				context.Code.AddABx(OP_ERRNNIL, tmp, context.ConstIndex(LString(name)), line)
-			}
+			emitGetGlobal(context, tmp, name, line)
+			context.Code.AddABx(OP_ERRNNIL, tmp, context.ConstIndex(LString(name)), line)
 			emitSetGlobal(context, reg+i, name, tmp, line)
 		}
 	}
@@ -1130,12 +1138,11 @@ func compileRegAssignment(context *funcContext, names []string, exprs []ast.Expr
 
 func compileLocalAssignStmt(context *funcContext, stmt *ast.LocalAssignStmt) { // {{{
 	reg := context.RegTop()
-	if len(stmt.Names) == 1 && len(stmt.Exprs) == 1 {
-		if _, ok := stmt.Exprs[0].(*ast.FunctionExpr); ok {
-			context.RegisterLocalVar(stmt.Names[0])
-			compileRegAssignment(context, stmt.Names, stmt.Exprs, reg, len(stmt.Names), sline(stmt))
-			return
-		}
+	if stmt.IsFunction && len(stmt.Names) == 1 && len(stmt.Exprs) == 1 {
+		// "local function f": the function body can refer to itself
+		context.RegisterLocalVar(stmt.Names[0])
+		compileRegAssignment(context, stmt.Names, stmt.Exprs, reg, len(stmt.Names), sline(stmt))
+		return
 	}
 
 	compileRegAssignment(context, stmt.Names, stmt.Exprs, reg, len(stmt.Names), sline(stmt))
@@ -1148,8 +1155,10 @@ func compileLocalAssignStmt(context *funcContext, stmt *ast.LocalAssignStmt) { /
 		case "const":
 			context.Block.LocalVars.SetAttr(idx, varAttrConst)
 		case "close":
-			if i != len(stmt.Names)-1 {
-				raiseCompileError(context, sline(stmt), "multiple to-be-closed variables in local list")
+			for _, other := range stmt.Attribs[i+1:] {
+				if other == "close" {
+					raiseCompileError(context, sline(stmt), "multiple to-be-closed variables in local list")
+				}
 			}
 			context.Block.LocalVars.SetAttr(idx, varAttrClose)
 			context.Block.RefUpvalue = true
@@ -1442,7 +1451,7 @@ func compileGenericForStmt55(context *funcContext, stmt *ast.GenericForStmt) { /
 	compileRegAssignment(context, make([]string, 4), stmt.Exprs, context.RegTop()-4, 4, sline(stmt))
 	context.Block.RefUpvalue = true
 	context.hasTBC = true
-	code.AddABC(OP_TBC, rclose, 0, 0, sline(stmt))
+	code.AddABC(OP_TBC, rclose, 1, 0, sline(stmt))
 	code.AddASbx(OP_JMP, 0, fllabel, sline(stmt))
 
 	context.EnterBlock(labelNoJump, stmt)
@@ -1524,7 +1533,8 @@ func compileExpr(context *funcContext, reg int, expr ast.Expr, ec *expcontext) i
 			raiseCompileError(context, sline(ex), "cannot use '...' outside a vararg function")
 		}
 		context.Proto.IsVarArg &= ^VarArgNeedsArg
-		code.AddABC(OP_VARARG, sreg, 2+ec.varargopt, 0, sline(ex))
+		// C != 0: the values come from the named vararg table in R(C-1)
+		code.AddABC(OP_VARARG, sreg, 2+ec.varargopt, context.varargTable, sline(ex))
 		if context.RegTop() > (sreg+2+ec.varargopt) || ec.varargopt < -1 {
 			return 0
 		}
@@ -1656,6 +1666,8 @@ func compileFunctionExpr(context *funcContext, funcexpr *ast.FunctionExpr, ec *e
 		context.Proto.IsVarArg |= VarArgIsVarArg
 		if name := funcexpr.ParList.VarargName; name != "" && context.lua55 {
 			idx := context.RegisterLocalVar(name)
+			context.Block.LocalVars.SetAttr(idx, varAttrConst)
+			context.varargTable = idx + 1
 			context.Code.AddABC(OP_VARARGTAB, idx, 0, 0, sline(funcexpr))
 		}
 	}
@@ -1738,12 +1750,14 @@ func compileTableExpr(context *funcContext, reg int, ex *ast.TableExpr, ec *expc
 			if field.Key != nil {
 				line = field.Key
 			}
+			block := c
 			if c > 511 {
 				c = 0
 			}
 			code.AddABC(OP_SETLIST, tablereg, b, c, sline(line))
 			if c == 0 {
-				code.Add(uint32(c), sline(line))
+				// the block number follows in an extra word
+				code.Add(uint32(block), sline(line))
 			}
 		}
 	}

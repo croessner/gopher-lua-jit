@@ -14,8 +14,8 @@ import (
 )
 
 const EOF = -1
-const whitespace1 = 1<<'\t' | 1<<' '
-const whitespace2 = 1<<'\t' | 1<<'\n' | 1<<'\r' | 1<<' '
+const whitespace1 = 1<<'\t' | 1<<' ' | 1<<'\v' | 1<<'\f'
+const whitespace2 = 1<<'\t' | 1<<'\n' | 1<<'\r' | 1<<' ' | 1<<'\v' | 1<<'\f'
 
 // Version selects the language profile accepted by the parser.
 type Version int
@@ -196,7 +196,7 @@ func (sc *Scanner) skipWhiteSpace(whitespace int64) int {
 
 func (sc *Scanner) skipComments(ch int) error {
 	// multiline comment
-	if sc.Peek() == '[' {
+	if sc.Peek() == '[' && sc.longBracketAhead() {
 		ch = sc.Next()
 		if sc.Peek() == '[' || sc.Peek() == '=' {
 			var buf bytes.Buffer
@@ -213,6 +213,27 @@ func (sc *Scanner) skipComments(ch int) error {
 		ch = sc.Next()
 	}
 	return nil
+}
+
+// longBracketAhead reports whether the input continues with an opening
+// long bracket ("[", any number of "=", "["). Anything else after "--["
+// is an ordinary line comment.
+func (sc *Scanner) longBracketAhead() bool {
+	for n := 2; ; n *= 2 {
+		buf, _ := sc.reader.Peek(n)
+		for i := 1; i < len(buf); i++ {
+			switch buf[i] {
+			case '=':
+			case '[':
+				return true
+			default:
+				return false
+			}
+		}
+		if len(buf) < n || n >= 2048 {
+			return false
+		}
+	}
 }
 
 func (sc *Scanner) scanIdent(ch int, buf *bytes.Buffer) error {

@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"math"
 	"reflect"
 	"unsafe"
 )
@@ -73,7 +74,7 @@ func newAllocator(size int) *allocator {
 // as a whole can be gc-ed.
 func (al *allocator) LNumber2I(v LNumber) LValue {
 	// first check for shared preloaded numbers
-	if v >= 0 && v < preloadLimit && float64(v) == float64(int64(v)) {
+	if v >= 0 && v < preloadLimit && float64(v) == float64(int64(v)) && (v != 0 || !math.Signbit(float64(v))) {
 		return preloads[int(v)]
 	}
 

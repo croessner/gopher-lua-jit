@@ -83,6 +83,11 @@ func switchToParentThread(L *LState, nargs int, haserror bool, kill bool) {
 	if parent == nil {
 		L.RaiseError("can not yield from outside of a coroutine")
 	}
+	if L.nny > 0 && !kill {
+		// the yield would have to suspend Go code (a metamethod, pcall,
+		// an iterator or a library callback) that called back into Lua
+		L.RaiseError("attempt to yield across a C-call boundary")
+	}
 	L.G.CurrentThread = parent
 	L.Parent = nil
 	if !L.wrapped {
@@ -787,6 +792,10 @@ func init() {
 			A := int(inst>>18) & 0xff //GETA
 			RA := lbase + A
 			B := int(inst & 0x1ff) //GETB
+			if C := int(inst>>9) & 0x1ff; C != 0 {
+				varargFromTable(L, RA, B, reg.Get(lbase+C-1))
+				return 0
+			}
 			nparams := int(cf.Fn.Proto.NumParameters)
 			nvarargs := cf.NArgs - nparams
 			if nvarargs < 0 {
@@ -848,7 +857,17 @@ func init() {
 			cf := L.currentFrame
 			lbase := cf.LocalBase
 			A := int(inst>>18) & 0xff //GETA
-			name, _ := cf.Fn.LocalName(A+1, cf.Pc)
+			B := int(inst & 0x1ff)    //GETB
+			name := "(for state)"
+			if B == 0 {
+				// the variable was registered right before this instruction
+				name = "?"
+				for _, l := range cf.Fn.Proto.DbgLocals {
+					if l.StartPc == cf.Pc-1 {
+						name = l.Name
+					}
+				}
+			}
 			L.markTBC(lbase+A, name)
 			return 0
 		},
