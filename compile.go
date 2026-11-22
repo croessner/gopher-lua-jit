@@ -528,6 +528,10 @@ func resolveName(context *funcContext, name string, line int) nameRef {
 			}
 		}
 	}
+	if context.lua55 && name == "_ENV" {
+		// the environment upvalue of the enclosing chunk
+		return nameRef{kind: nkUpvalue}
+	}
 	if collective < 0 && namedSeen {
 		raiseCompileError(context, line, "variable '%s' not declared", name)
 	}
