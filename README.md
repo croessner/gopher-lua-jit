@@ -110,7 +110,8 @@ methodology in [docs/benchmarks.md](docs/benchmarks.md)):
 make build            # regenerate inlined sources and build
 make test             # all tests
 make test-race        # with the race detector
-make test-linux-arm64 # full suite on linux/arm64 through Docker
+make test-linux-amd64 # the suite on linux/amd64 through Docker
+make test-linux-arm64 # the suite on linux/arm64 through Docker (short mode)
 make bench            # benchmarks of this runtime
 make bench-upstream   # the same benchmarks on upstream GopherLua v1.1.2
 make bench-external   # the same kernels on lua5.5 / luajit, if installed

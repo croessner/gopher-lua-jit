@@ -8,8 +8,9 @@ run against.
 ## 1. GopherLua Go API
 
 Baseline: GopherLua v1.1.2 (commit `75f4976`). All of its tests pass
-unchanged (`go test .` runs the upstream Go tests and the upstream Lua
-scripts in `_glua-tests` and `_lua5.1-tests`), with and without the JIT.
+(`go test .` runs the upstream Go tests and the upstream Lua scripts in
+`_glua-tests` and `_lua5.1-tests`), with and without the JIT. The only
+change to them is a data race fix in a test helper.
 
 | API | Status |
 |---|---|
@@ -150,7 +151,17 @@ See [jit.md](jit.md). Summary of verification:
 | upstream suite and conformance scripts with JIT | pass | pass | pass | not run |
 | random differential programs, fuzzing | pass | pass | pass (short mode) | not run |
 
-## 5. How to reproduce
+## 5. Review
+
+After implementation the code was reviewed adversarially in two passes
+(JIT; compiler, parser and VM core) with differential testing against
+upstream GopherLua, the oracle and LuaJIT. The defects found, including
+several compiler bugs inherited from GopherLua, are fixed and covered by
+`jit_regress_test.go` and `compile_regress_test.go`. Not covered by that
+review: the arm64 backend at run time, the Lua 5.5 standard library beyond
+incidental use, and third-party code using package `parse` directly.
+
+## 6. How to reproduce
 
 ```bash
 go test -count=1 ./...          # everything, including oracle checks if lua5.5 is installed
