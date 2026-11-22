@@ -291,9 +291,6 @@ func fmtFloat55(f float64) string {
 		return "-inf"
 	}
 	if math.IsNaN(f) {
-		if math.Signbit(f) {
-			return "-nan"
-		}
 		return "nan"
 	}
 	s := strconv.FormatFloat(f, 'g', 15, 64)

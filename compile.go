@@ -42,6 +42,8 @@ type assigncontext struct {
 	valuerk  int
 	keyks    bool
 	needmove bool
+	// localreg is the register of a local variable target.
+	localreg int
 }
 
 type lblabels struct {
@@ -972,11 +974,16 @@ func compileAssignStmtLeft(context *funcContext, stmt *ast.AssignStmt) (int, []*
 			case ecUpvalue:
 				context.Upvalues.RegisterUnique(st.Value)
 			case ecLocal:
-				ec.reg = ref.reg
+				// With several targets every right-hand side is evaluated
+				// into a temporary first: all expressions must see the
+				// values the variables had before the assignment.
+				if len(stmt.Lhs) == 1 {
+					ec.reg = ref.reg
+				}
 			}
-			acs = append(acs, &assigncontext{ec, 0, 0, false, false})
+			acs = append(acs, &assigncontext{ec: ec, localreg: ref.reg})
 		case *ast.AttrGetExpr:
-			ac := &assigncontext{&expcontext{ecTable, regNotDefined, 0}, 0, 0, false, false}
+			ac := &assigncontext{ec: &expcontext{ecTable, regNotDefined, 0}}
 			compileExprWithKMVPropagation(context, st.Object, &reg, &ac.ec.reg)
 			ac.keyrk = reg
 			reg += compileExpr(context, reg, st.Key, ecnone(0))
@@ -1012,9 +1019,7 @@ func compileAssignStmtRight(context *funcContext, stmt *ast.AssignStmt, reg int,
 			reg += reginc
 			for i := namesassigned; i < namesassigned+int(reginc); i++ {
 				acs[i].needmove = true
-				if acs[i].ec.ctype == ecTable {
-					acs[i].valuerk = regstart + (i - namesassigned)
-				}
+				acs[i].valuerk = regstart + (i - namesassigned)
 			}
 			namesassigned = lennames
 			continue
@@ -1034,6 +1039,7 @@ func compileAssignStmtRight(context *funcContext, stmt *ast.AssignStmt, reg int,
 			}
 		} else {
 			ac.needmove = reginc != 0
+			ac.valuerk = idx
 			reg += reginc
 		}
 		namesassigned += 1
@@ -1057,30 +1063,27 @@ func compileAssignStmt(context *funcContext, stmt *ast.AssignStmt) { // {{{
 	lennames := len(stmt.Lhs)
 	reg, acs := compileAssignStmtLeft(context, stmt)
 	reg, acs = compileAssignStmtRight(context, stmt, reg, acs)
-
+	// every target knows the register (or constant) that holds its value;
+	// the assignments are performed from right to left
+	tmp := reg + 1
 	for i := lennames - 1; i >= 0; i-- {
 		ex := stmt.Lhs[i]
+		src := acs[i].valuerk
 		switch acs[i].ec.ctype {
 		case ecLocal:
 			if acs[i].needmove {
-				code.AddABC(OP_MOVE, acs[i].ec.reg, reg, 0, sline(ex))
-				reg -= 1
+				code.AddABC(OP_MOVE, acs[i].localreg, src, 0, sline(ex))
 			}
 		case ecGlobal:
-			emitSetGlobal(context, reg, ex.(*ast.IdentExpr).Value, reg+1, sline(ex))
-			reg -= 1
+			emitSetGlobal(context, src, ex.(*ast.IdentExpr).Value, tmp, sline(ex))
 		case ecUpvalue:
-			code.AddABC(OP_SETUPVAL, reg, context.Upvalues.RegisterUnique(ex.(*ast.IdentExpr).Value), 0, sline(ex))
-			reg -= 1
+			code.AddABC(OP_SETUPVAL, src, context.Upvalues.RegisterUnique(ex.(*ast.IdentExpr).Value), 0, sline(ex))
 		case ecTable:
 			opcode := OP_SETTABLE
 			if acs[i].keyks {
 				opcode = OP_SETTABLEKS
 			}
-			code.AddABC(opcode, acs[i].ec.reg, acs[i].keyrk, acs[i].valuerk, sline(ex))
-			if !opIsK(acs[i].valuerk) {
-				reg -= 1
-			}
+			code.AddABC(opcode, acs[i].ec.reg, acs[i].keyrk, src, sline(ex))
 		}
 	}
 } // }}}
@@ -1401,8 +1404,8 @@ func compileGenericForStmt(context *funcContext, stmt *ast.GenericForStmt) { // 
 	context.RegisterLocalVar("(for state)")
 	context.RegisterLocalVar("(for control)")
 
-	compileRegAssignment(context, stmt.Names, stmt.Exprs, context.RegTop()-3, 3, sline(stmt))
-
+	// the three control values are assigned like "local g, s, c = explist"
+	compileRegAssignment(context, make([]string, 3), stmt.Exprs, context.RegTop()-3, 3, sline(stmt))
 	code.AddASbx(OP_JMP, 0, fllabel, sline(stmt))
 
 	for _, name := range stmt.Names {
@@ -1436,7 +1439,7 @@ func compileGenericForStmt55(context *funcContext, stmt *ast.GenericForStmt) { /
 	context.RegisterLocalVar("(for state)")
 	context.RegisterLocalVar("(for control)")
 	rclose := context.RegisterLocalVar("(for closing)")
-	compileRegAssignment(context, stmt.Names, stmt.Exprs, context.RegTop()-4, 4, sline(stmt))
+	compileRegAssignment(context, make([]string, 4), stmt.Exprs, context.RegTop()-4, 4, sline(stmt))
 	context.Block.RefUpvalue = true
 	context.hasTBC = true
 	code.AddABC(OP_TBC, rclose, 0, 0, sline(stmt))

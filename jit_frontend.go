@@ -1057,7 +1057,7 @@ func (fe *jitFrontend) generic(pc, op int) (int, bool) {
 		// calls of Go functions complete inside the callout; when the
 		// callee turns out to be a Lua function the driver hands the
 		// frame over to the interpreter
-		if B != 0 && C != 0 && fe.jp.feedback[feedbackKey{int32(pc), int16(A), fbValue}] != vkLFunction {
+		if B != 0 && C != 0 {
 			fe.calloutInst()
 			for r := A; r < fe.nslots; r++ {
 				fe.st[r] = slotState{}

@@ -653,9 +653,6 @@ func (ls *LState) closeAllUpvalues() { // +inline-start
 } // +inline-end
 
 func (ls *LState) raiseError(level int, format string, args ...interface{}) {
-	if !ls.hasErrorFunc {
-		ls.closeAllUpvalues()
-	}
 	message := format
 	if len(args) > 0 {
 		message = fmt.Sprintf(format, args...)
@@ -1565,9 +1562,6 @@ func (ls *LState) Error(lv LValue, level int) {
 	if str, ok := lv.(LString); ok {
 		ls.raiseError(level, string(str))
 	} else {
-		if !ls.hasErrorFunc {
-			ls.closeAllUpvalues()
-		}
 		ls.Push(lv)
 		ls.Panic(ls)
 	}
@@ -1922,6 +1916,9 @@ func (ls *LState) PCall(nargs, nret int, errfunc *LFunction) (err error) {
 			} else if len(err.(*ApiError).StackTrace) == 0 {
 				err.(*ApiError).StackTrace = ls.stackTrace(0)
 			}
+			// close the upvalues of the frames that are being unwound
+			// (and only those: frames below the protected call go on)
+			// +inline-call ls.closeUpvalues base
 			ls.stack.SetSp(sp)
 			ls.currentFrame = ls.stack.Last()
 			ls.reg.SetTop(base)

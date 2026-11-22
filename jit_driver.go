@@ -387,20 +387,23 @@ loop:
 			ls.jitApply(u, x.Entries, frame, base)
 			pc := x.PC
 			inst := cf.Fn.Proto.Code[pc]
-			if int(inst>>26) == OP_CALL {
-				if fn, ok := ls.reg.array[base+int(inst>>18)&0xff].(*LFunction); ok && !fn.IsG {
-					// a Lua function: remember it so that a recompilation
-					// ends the region here, and let the interpreter call
-					u.jp.feedback[feedbackKey{int32(pc), int16(int(inst>>18) & 0xff), fbValue}] = vkLFunction
-					cf.Pc = pc
-					ls.jitExitNote(u, id, m, base, fuel-frame[jit.CtxFuel/8])
-					break loop
-				}
-			}
 			cf.Pc = pc + 1
 			if jumpTable[int(inst>>26)](ls, inst, baseframe) == 1 {
 				result = 1
 				break loop
+			}
+			if ls.currentFrame != cf && int(inst>>26) == OP_CALL {
+				// the instruction called a Lua function: run it to
+				// completion in a nested interpreter loop, like L.Call
+				ls.mainLoop(ls, ls.currentFrame)
+				if ls.G.CurrentThread != ls || ls.currentFrame != cf {
+					// the callee did not return here but yielded (the
+					// frame of a tail-called yield is already gone, so
+					// the current frame alone does not tell): the
+					// interpreter loops of this thread must unwind
+					result = 1
+					break loop
+				}
 			}
 			if ls.currentFrame != cf || u.dead {
 				// the interpreter continues: either a new frame was

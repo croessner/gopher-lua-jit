@@ -122,7 +122,7 @@ func (ls *LState) CheckString(n int) string {
 	if lv, ok := v.(LString); ok {
 		return string(lv)
 	} else if LVCanConvToString(v) {
-		return ls.ToString(n)
+		return ls.valueToString(v)
 	}
 	ls.TypeError(n, LTString)
 	return ""
@@ -201,6 +201,9 @@ func (ls *LState) CheckOption(n int, options []string) int {
 			return i
 		}
 	}
+	if ls.lang55 {
+		ls.ArgError(n, fmt.Sprintf("invalid option '%s'", str))
+	}
 	ls.ArgError(n, fmt.Sprintf("invalid option: %s (must be one of %s)", str, strings.Join(options, ",")))
 	return 0
 }
@@ -255,6 +258,9 @@ func (ls *LState) OptString(n int, d string) string {
 	}
 	if lv, ok := v.(LString); ok {
 		return string(lv)
+	}
+	if ls.lang55 && LVCanConvToString(v) {
+		return ls.valueToString(v)
 	}
 	ls.TypeError(n, LTString)
 	return ""
@@ -505,7 +511,11 @@ func (ls *LState) ToStringMeta(lv LValue) LValue {
 		ls.Call(1, 1)
 		ret := ls.reg.Pop()
 		if ls.lang55 {
-			if _, isstr := ret.(LString); !isstr {
+			switch ret.(type) {
+			case LString:
+			case LNumber, LInteger:
+				return LString(ls.numToString(ret))
+			default:
 				ls.RaiseError("'__tostring' must return a string")
 			}
 		}
