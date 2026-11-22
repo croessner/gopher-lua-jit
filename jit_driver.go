@@ -414,7 +414,10 @@ loop:
 			if ls.currentFrame != cf && int(inst>>26) == OP_CALL {
 				// the instruction called a Lua function: run it to
 				// completion in a nested interpreter loop, like L.Call
-				ls.mainLoop(ls, ls.currentFrame)
+				// (the plain loop is used on purpose: this nested loop is
+				// transparent, a yield inside the callee unwinds through
+				// it, so it must not count as a Go-call boundary)
+				selectMainLoop(true, ls.ctx != nil)(ls, ls.currentFrame)
 				if ls.G.CurrentThread != ls || ls.currentFrame != cf {
 					// the callee did not return here but yielded (the
 					// frame of a tail-called yield is already gone, so

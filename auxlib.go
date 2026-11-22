@@ -320,7 +320,7 @@ func (ls *LState) OptUserData(n int, d *LUserData) *LUserData {
 
 func (ls *LState) ArgError(n int, message string) {
 	if ls.lang55 {
-		ls.RaiseError("bad argument #%v to '%v' (%v)", n, ls.rawFrameFuncName(ls.currentFrame), message)
+		debug55ArgError(ls, n, message)
 	}
 	ls.RaiseError("bad argument #%v to %v (%v)", n, ls.rawFrameFuncName(ls.currentFrame), message)
 }
@@ -331,7 +331,7 @@ func (ls *LState) TypeError(n int, typ LValueType) {
 		if n <= ls.GetTop() {
 			got = ls.typeNameOf(ls.Get(n))
 		}
-		ls.RaiseError("bad argument #%v to '%v' (%v expected, got %v)", n, ls.rawFrameFuncName(ls.currentFrame), typ.String(), got)
+		debug55ArgError(ls, n, fmt.Sprintf("%v expected, got %v", typ.String(), got))
 	}
 	ls.RaiseError("bad argument #%v to %v (%v expected, got %v)", n, ls.rawFrameFuncName(ls.currentFrame), typ.String(), ls.Get(n).Type().String())
 }
