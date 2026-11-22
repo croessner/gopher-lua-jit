@@ -354,6 +354,17 @@ func simplify(f *Func) bool {
 				}
 			}
 		}
+		// guards on conditions that are known to hold are redundant
+		n := 0
+		for _, v := range b.Values {
+			if v.Op == OpGuard && v.Args[0].IsConst() && v.Args[0].Aux != 0 {
+				changed = true
+				continue
+			}
+			b.Values[n] = v
+			n++
+		}
+		b.Values = b.Values[:n]
 		// fold branches on constants
 		if b.Kind == BlockIf && b.Control.IsConst() {
 			taken, dead := b.Succs[0], b.Succs[1]

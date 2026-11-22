@@ -196,6 +196,9 @@ type jitFrontend struct {
 	writes     map[int]*regSet
 	loopWrites map[int]*regSet
 	restart    bool
+	// openTop is the register behind the last value of an open result
+	// list produced by the previous instruction (-1 if there is none).
+	openTop int
 	// statistics for the profitability check
 	nativeOps int
 	callouts  int
@@ -244,6 +247,7 @@ func (fe *jitFrontend) translate() (err error) {
 		}
 	}()
 	fe.f = jit.NewFunc(fmt.Sprintf("%s:%d@%d", fe.proto.SourceName, fe.proto.LineDefined, fe.entryPC))
+	fe.openTop = -1
 	fe.meta = fe.meta[:0]
 	fe.consts = fe.consts[:0]
 	fe.keep = fe.keep[:0]
@@ -934,6 +938,8 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 	op := opGetOpCode(inst)
 	A, B, C := opGetArgA(inst), opGetArgB(inst), opGetArgC(inst)
 	next = pc + 1
+	openTop := fe.openTop
+	fe.openTop = -1
 	switch op {
 	case OP_MOVE, OP_MOVEN:
 		fe.move(A, B)
@@ -1043,7 +1049,18 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 			return fe.generic(pc, op)
 		}
 	case OP_CALL:
+		if B == 0 {
+			// the arguments end with an open result list
+			if openTop < 0 {
+				return fe.generic(pc, op)
+			}
+			B = openTop - A
+		}
 		if !fe.intrinsicCall(A, B, C) {
+			if opGetArgB(inst) == 0 {
+				fe.unsupported()
+				return 0, true
+			}
 			return fe.generic(pc, op)
 		}
 	case OP_SETTABLE:
@@ -1208,7 +1225,7 @@ func (fe *jitFrontend) floatToIntExact(f *jit.Value) *jit.Value {
 // numeric argument and one result into native code.
 func (fe *jitFrontend) intrinsicCall(a, b, c int) bool {
 	s := &fe.st[a]
-	if s.kind != skConst || b != 2 || c != 2 {
+	if s.kind != skConst || b != 2 || (c != 2 && c != 0) {
 		return false
 	}
 	fn, _ := fe.consts[s.src].(*LFunction)
@@ -1248,6 +1265,10 @@ func (fe *jitFrontend) intrinsicCall(a, b, c int) bool {
 	// the argument registers are dead after a call
 	for r := a + 1; r < a+b && r < fe.nslots; r++ {
 		fe.st[r] = slotState{}
+	}
+	if c == 0 {
+		// all results were requested: there is exactly one
+		fe.openTop = a + 1
 	}
 	return true
 }
@@ -1335,7 +1356,7 @@ func (fe *jitFrontend) arith(op, a, b, c int) bool {
 			fe.set(a, skFloat, fe.op(jit.OpFFloor, jit.TFloat, q))
 			return true
 		}
-		return false // float modulo is left to the interpreter
+		return fe.floatModIntegral(a, x, xk, y, yk)
 	case OP_BAND, OP_BOR, OP_BXOR:
 		if !bothInt {
 			return false
@@ -1370,6 +1391,35 @@ func (fe *jitFrontend) arith(op, a, b, c int) bool {
 		return true
 	}
 	return false
+}
+
+// floatExactInt converts a number to an integer, deoptimizing unless it
+// is a float with an exact integer value.
+func (fe *jitFrontend) floatExactInt(v *jit.Value, kind slotKind) *jit.Value {
+	if kind == skInt {
+		return v
+	}
+	fe.guard(fe.op(jit.OpFLt, jit.TInt, v, fe.f.ConstFloat(fe.cur, 9223372036854775808.0)), -1, 0)
+	i := fe.op(jit.OpFloatToInt, jit.TInt, v)
+	fe.guard(fe.op(jit.OpFEq, jit.TInt, fe.op(jit.OpIntToFloat, jit.TFloat, i), v), -1, 0)
+	return i
+}
+
+// floatModIntegral translates a float modulo whose operands hold integral
+// values, the usual case in Lua 5.1 code where every number is a float.
+// The remainder is computed with integers, which is exact. Other operand
+// values deoptimize, as does a zero result of a negative dividend, which
+// must be negative zero.
+func (fe *jitFrontend) floatModIntegral(a int, x *jit.Value, xk slotKind, y *jit.Value, yk slotKind) bool {
+	ix := fe.floatExactInt(x, xk)
+	iy := fe.floatExactInt(y, yk)
+	fe.guard(fe.op(jit.OpNe, jit.TInt, iy, fe.constInt(0)), -1, 0)
+	r := fe.op(jit.OpMod, jit.TInt, ix, iy)
+	nonZero := fe.op(jit.OpNe, jit.TInt, r, fe.constInt(0))
+	nonNegative := fe.op(jit.OpLe, jit.TInt, fe.constInt(0), ix)
+	fe.guard(fe.op(jit.OpOr, jit.TInt, nonZero, nonNegative), -1, 0)
+	fe.set(a, skFloat, fe.op(jit.OpIntToFloat, jit.TFloat, r))
+	return true
 }
 
 // intAsFloat converts an integer operand of a mixed comparison to a
