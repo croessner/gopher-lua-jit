@@ -992,7 +992,14 @@ func compileAssignStmtLeft(context *funcContext, stmt *ast.AssignStmt) (int, []*
 			acs = append(acs, &assigncontext{ec: ec, localreg: ref.reg})
 		case *ast.AttrGetExpr:
 			ac := &assigncontext{ec: &expcontext{ecTable, regNotDefined, 0}}
-			compileExprWithKMVPropagation(context, st.Object, &reg, &ac.ec.reg)
+			if len(stmt.Lhs) > 1 {
+				// the table must be the one the expression denotes before
+				// any target of this statement is assigned
+				ac.ec.reg = reg
+				reg += compileExpr(context, reg, st.Object, ecnone(0))
+			} else {
+				compileExprWithKMVPropagation(context, st.Object, &reg, &ac.ec.reg)
+			}
 			ac.keyrk = reg
 			reg += compileExpr(context, reg, st.Key, ecnone(0))
 			if _, ok := st.Key.(*ast.StringExpr); ok {
@@ -1039,7 +1046,7 @@ func compileAssignStmtRight(context *funcContext, stmt *ast.AssignStmt, reg int,
 		idx := reg
 		reginc := compileExpr(context, reg, expr, ec)
 		if ec.ctype == ecTable {
-			if _, ok := expr.(*ast.LogicalOpExpr); !ok {
+			if _, ok := expr.(*ast.LogicalOpExpr); !ok && lennames == 1 {
 				context.Code.PropagateKMV(context.RegTop(), &ac.valuerk, &reg, reginc)
 			} else {
 				ac.valuerk = idx
