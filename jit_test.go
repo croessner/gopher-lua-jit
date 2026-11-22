@@ -199,3 +199,17 @@ func TestJITCompilesLoops(t *testing.T) {
 		}
 	}
 }
+
+// TestJITLua55Conformance runs the Lua 5.5 conformance scripts with the
+// JIT compiling every loop almost immediately.
+func TestJITLua55Conformance(t *testing.T) {
+	skipWithoutJIT(t)
+	for _, group := range []string{"core", "strings", "mtio", "base"} {
+		for _, threshold := range []int{1, 3} {
+			group, threshold := group, threshold
+			t.Run(fmt.Sprintf("%s-%d", group, threshold), func(t *testing.T) {
+				runLua55Scripts(t, group, jitTestOptions(Lua55, threshold))
+			})
+		}
+	}
+}
