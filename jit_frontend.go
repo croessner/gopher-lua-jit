@@ -2,6 +2,8 @@ package lua
 
 import (
 	"fmt"
+	"reflect"
+	"unsafe"
 
 	"github.com/yuin/gopher-lua/internal/jit"
 )
@@ -154,8 +156,15 @@ func (e errJITUnsupported) Error() string { return string(e) }
 type jitFrontend struct {
 	L     *LState
 	jp    *jitProto
+	fn    *LFunction
 	proto *FunctionProto
 	info  *bcInfo
+	// env is the table global accesses of the function resolve in (nil
+	// if unknown); usesEnv is set once the code depends on its identity.
+	env     *LTable
+	usesEnv bool
+	// keep lists the tables whose version word the code reads.
+	keep []*LTable
 	// frame gives access to the live registers of the function for type
 	// prediction.
 	frame   []LValue
@@ -194,9 +203,10 @@ type jitFrontend struct {
 
 // compileLoopIR translates the region starting at the loop header entryPC
 // into IR. frame is the register window of the running function.
-func compileLoopIR(L *LState, jp *jitProto, frame []LValue, entryPC int) (*jit.Func, *jitFrontend, error) {
+func compileLoopIR(L *LState, jp *jitProto, fn *LFunction, frame []LValue, entryPC int) (*jit.Func, *jitFrontend, error) {
 	fe := &jitFrontend{
-		L: L, jp: jp, proto: jp.proto, info: jp.proto.analysis(),
+		L: L, jp: jp, fn: fn, proto: jp.proto, info: jp.proto.analysis(),
+		env:   functionEnv(fn),
 		frame: frame, entryPC: entryPC, nslots: jp.proto.analysis().nslots,
 		demoted:     make(map[demoteKey]bool),
 		forcedDirty: make(map[demoteKey]bool),
@@ -236,6 +246,8 @@ func (fe *jitFrontend) translate() (err error) {
 	fe.f = jit.NewFunc(fmt.Sprintf("%s:%d@%d", fe.proto.SourceName, fe.proto.LineDefined, fe.entryPC))
 	fe.meta = fe.meta[:0]
 	fe.consts = fe.consts[:0]
+	fe.keep = fe.keep[:0]
+	fe.usesEnv = false
 	fe.nativeOps, fe.callouts = 0, 0
 	fe.discoverRegion()
 
@@ -1022,6 +1034,18 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 		if !fe.getTable(A, B, C) {
 			return fe.generic(pc, op)
 		}
+	case OP_GETGLOBAL, OP_GETENV:
+		if !fe.constGlobal(A, opGetArgBx(inst)) {
+			return fe.generic(pc, op)
+		}
+	case OP_GETTABLEKS:
+		if !fe.constField(A, B, C) {
+			return fe.generic(pc, op)
+		}
+	case OP_CALL:
+		if !fe.intrinsicCall(A, B, C) {
+			return fe.generic(pc, op)
+		}
 	case OP_SETTABLE:
 		if !fe.setTable(A, B, C) {
 			return fe.generic(pc, op)
@@ -1067,6 +1091,165 @@ func (fe *jitFrontend) generic(pc, op int) (int, bool) {
 	}
 	fe.unsupported()
 	return 0, true
+}
+
+// functionEnv returns the table in which the global accesses of a Lua
+// function are resolved, or nil if it is not a plain table.
+func functionEnv(fn *LFunction) *LTable {
+	if fn == nil || fn.IsG {
+		return nil
+	}
+	if idx := int(fn.Proto.EnvUpvalue); idx >= 0 {
+		if idx < len(fn.Upvalues) && fn.Upvalues[idx] != nil {
+			tb, _ := fn.Upvalues[idx].Value().(*LTable)
+			return tb
+		}
+		return nil
+	}
+	if fn.Proto.Version == Lua55 {
+		return nil
+	}
+	return fn.Env
+}
+
+// guardVersion makes the compiled code depend on the string-keyed
+// function and table entries of tb staying unchanged.
+func (fe *jitFrontend) guardVersion(tb *LTable) {
+	tb.watched = true
+	fe.keep = append(fe.keep, tb)
+	addr := fe.constInt(int64(uintptr(unsafe.Pointer(&tb.version))))
+	cur := fe.load(jit.OpLoad32, jit.TInt, addr, 0)
+	fe.guard(fe.op(jit.OpEq, jit.TInt, cur, fe.constInt(int64(tb.version))), -1, 0)
+}
+
+// constValue reports whether v may be treated as a constant of the
+// compiled code: functions and tables found under a string key, whose
+// replacement bumps the version of the containing table.
+func constValue(v LValue) bool {
+	switch v.(type) {
+	case *LFunction, *LTable:
+		return true
+	}
+	return false
+}
+
+// constGlobal translates the load of a global that holds a function or a
+// table (such as "math") into a guarded constant.
+func (fe *jitFrontend) constGlobal(a, kidx int) bool {
+	if fe.env == nil {
+		return false
+	}
+	v := fe.env.RawGetString(fe.proto.stringConstants[kidx])
+	if !constValue(v) {
+		return false
+	}
+	fe.usesEnv = true
+	fe.guardVersion(fe.env)
+	fe.st[a] = slotState{kind: skConst, src: fe.constIndex(v)}
+	return true
+}
+
+// constField translates R(a) := R(b)[K(c)] when R(b) is a constant table
+// and the field holds a function or a table (such as "math.floor").
+func (fe *jitFrontend) constField(a, b, c int) bool {
+	s := &fe.st[b]
+	if s.kind != skConst || c&opBitRk == 0 {
+		return false
+	}
+	tb, ok := fe.consts[s.src].(*LTable)
+	if !ok {
+		return false
+	}
+	v := tb.RawGetString(fe.proto.stringConstants[c&^opBitRk])
+	if !constValue(v) {
+		return false
+	}
+	fe.guardVersion(tb)
+	fe.st[a] = slotState{kind: skConst, src: fe.constIndex(v)}
+	return true
+}
+
+// Intrinsics: library functions with a native translation.
+const (
+	intrNone = iota
+	intrSqrt
+	intrFloor
+	intrCeil
+	intrAbs
+)
+
+// intrinsicOf identifies library functions that have a native form.
+func intrinsicOf(fn *LFunction) int {
+	if fn == nil || !fn.IsG || fn.GFunction == nil {
+		return intrNone
+	}
+	switch reflect.ValueOf(fn.GFunction).Pointer() {
+	case reflect.ValueOf(LGFunction(mathSqrt)).Pointer():
+		return intrSqrt
+	case reflect.ValueOf(LGFunction(mathFloor)).Pointer(), reflect.ValueOf(LGFunction(math55Floor)).Pointer():
+		return intrFloor
+	case reflect.ValueOf(LGFunction(mathCeil)).Pointer(), reflect.ValueOf(LGFunction(math55Ceil)).Pointer():
+		return intrCeil
+	case reflect.ValueOf(LGFunction(mathAbs)).Pointer(), reflect.ValueOf(LGFunction(math55Abs)).Pointer():
+		return intrAbs
+	}
+	return intrNone
+}
+
+// floatToIntExact converts a float value that is known to be integral
+// to an integer, deoptimizing if it does not fit.
+func (fe *jitFrontend) floatToIntExact(f *jit.Value) *jit.Value {
+	fe.guard(fe.op(jit.OpFLt, jit.TInt, f, fe.f.ConstFloat(fe.cur, 9223372036854775808.0)), -1, 0)
+	fe.guard(fe.op(jit.OpFLe, jit.TInt, fe.f.ConstFloat(fe.cur, -9223372036854775808.0), f), -1, 0)
+	return fe.op(jit.OpFloatToInt, jit.TInt, f)
+}
+
+// intrinsicCall translates a call of a known library function with one
+// numeric argument and one result into native code.
+func (fe *jitFrontend) intrinsicCall(a, b, c int) bool {
+	s := &fe.st[a]
+	if s.kind != skConst || b != 2 || c != 2 {
+		return false
+	}
+	fn, _ := fe.consts[s.src].(*LFunction)
+	kind := intrinsicOf(fn)
+	if kind == intrNone {
+		return false
+	}
+	x, xk, ok := fe.num(a + 1)
+	if !ok {
+		return false
+	}
+	lang55 := fe.L.lang55
+	switch kind {
+	case intrSqrt:
+		fe.set(a, skFloat, fe.op(jit.OpFSqrt, jit.TFloat, fe.toFloat(x, xk)))
+	case intrFloor, intrCeil:
+		o := jit.OpFFloor
+		if kind == intrCeil {
+			o = jit.OpFCeil
+		}
+		switch {
+		case xk == skInt && lang55:
+			fe.set(a, skInt, x)
+		case lang55:
+			fe.set(a, skInt, fe.floatToIntExact(fe.op(o, jit.TFloat, x)))
+		default:
+			fe.set(a, skFloat, fe.op(o, jit.TFloat, fe.toFloat(x, xk)))
+		}
+	case intrAbs:
+		if xk == skInt && lang55 {
+			mask := fe.op(jit.OpSar, jit.TInt, x, fe.constInt(63))
+			fe.set(a, skInt, fe.op(jit.OpSub, jit.TInt, fe.op(jit.OpXor, jit.TInt, x, mask), mask))
+		} else {
+			fe.set(a, skFloat, fe.op(jit.OpFAbs, jit.TFloat, fe.toFloat(x, xk)))
+		}
+	}
+	// the argument registers are dead after a call
+	for r := a + 1; r < a+b && r < fe.nslots; r++ {
+		fe.st[r] = slotState{}
+	}
+	return true
 }
 
 // move translates R(a) := R(b).

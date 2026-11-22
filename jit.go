@@ -158,6 +158,16 @@ type jitUnit struct {
 	consts []LValue
 	nslots int
 
+	// env is the globals table the code was specialized for (nil if it
+	// does not depend on one); keep holds the tables whose version word
+	// is read by the code, so that they stay alive.
+	env  *LTable
+	keep []*LTable
+	// nativeOps is the number of native operations of the unit, used to
+	// judge whether callouts dominate its run time.
+	nativeOps int
+	callouts  uint64
+
 	exitCounts []uint32
 	entries    uint64
 	iterations uint64 // loop iterations executed natively

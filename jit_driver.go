@@ -184,7 +184,7 @@ func (js *jitState) compile(L *LState, cf *callFrame, jp *jitProto, lp *jitLoop)
 	if base+nslots > len(L.reg.array) {
 		return nil
 	}
-	f, fe, err := compileLoopIR(L, jp, L.reg.array[base:base+nslots], lp.pc)
+	f, fe, err := compileLoopIR(L, jp, cf.Fn, L.reg.array[base:base+nslots], lp.pc)
 	if err != nil {
 		js.stats.CompileFailed++
 		js.blacklist(lp, err.Error())
@@ -222,6 +222,10 @@ func (js *jitState) compile(L *LState, cf *callFrame, jp *jitProto, lp *jitLoop)
 		block: block, addr: block.Addr(), code: code, loop: lp, jp: jp,
 		meta: append([]exitMeta(nil), fe.meta...), consts: append([]LValue(nil), fe.consts...),
 		nslots: nslots, exitCounts: make([]uint32, len(code.Exits)),
+		keep: append([]*LTable(nil), fe.keep...), nativeOps: fe.nativeOps,
+	}
+	if fe.usesEnv {
+		u.env = fe.env
 	}
 	js.units[u] = struct{}{}
 	js.codeBytes += block.Size()
@@ -335,6 +339,10 @@ func (ls *LState) jitRun(cf *callFrame, u *jitUnit, baseframe *callFrame) int {
 	if depth >= jitMaxDepth || base+u.nslots > len(ls.reg.array) {
 		return 0
 	}
+	if u.env != nil && functionEnv(cf.Fn) != u.env {
+		// this closure resolves globals in another table
+		return 0
+	}
 	if depth == len(th.frames) {
 		th.frames = append(th.frames, nil)
 	}
@@ -366,6 +374,16 @@ loop:
 			js.stats.SafePoints++
 			u.iterations += fuel
 			frame[jit.CtxFuel/8] = fuel
+			if u.unprofitable() {
+				// the loop spends its time in callouts: hand it back to
+				// the interpreter for good
+				ls.jitApply(u, x.Entries, frame, base)
+				cf.Pc = x.PC
+				lp := u.loop
+				js.discard(u)
+				js.blacklist(lp, "loop is dominated by interpreter callouts")
+				break loop
+			}
 			if ls.ctx != nil {
 				select {
 				case <-ls.ctx.Done():
@@ -380,6 +398,7 @@ loop:
 			target = u.addr + uintptr(x.Resume)
 		case emFlush:
 			js.stats.Callouts++
+			u.callouts++
 			ls.jitApply(u, x.Entries, frame, base)
 			target = u.addr + uintptr(x.Resume)
 		case emInst:
@@ -405,9 +424,11 @@ loop:
 					break loop
 				}
 			}
-			if ls.currentFrame != cf || u.dead {
-				// the interpreter continues: either a new frame was
-				// pushed or the unit was discarded while the callout ran
+			u.callouts++
+			if ls.currentFrame != cf || u.dead || (u.env != nil && functionEnv(cf.Fn) != u.env) {
+				// the interpreter continues: a new frame was pushed, the
+				// unit was discarded while the callout ran, or the
+				// environment of the function was replaced
 				break loop
 			}
 			if cf.Pc == pc+2 {
@@ -427,6 +448,14 @@ loop:
 	}
 	ls.jitLeave(th)
 	return result
+}
+
+// unprofitable reports whether the unit spends so much time in callouts
+// that interpreting the loop is cheaper. A callout costs roughly as much
+// as the interpreter needs for a handful of instructions, so the native
+// work per iteration has to outweigh the callouts per iteration.
+func (u *jitUnit) unprofitable() bool {
+	return u.iterations >= 512 && u.callouts*6 >= u.iterations*uint64(u.nativeOps)
 }
 
 // jitExitNote does the bookkeeping for an exit to the interpreter: it
