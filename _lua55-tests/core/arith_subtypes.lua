@@ -215,3 +215,17 @@ assert(not pcall(function() return print / 2 end))
 assert(not pcall(function() return 1 // false end))
 assert(not pcall(function() return 1 % {} end))
 end
+
+-- ## exponentiation with exactly representable results
+do
+-- (the reference uses the C library pow, which returns these exactly)
+local ten, sixtyfour = 10, 64
+assert(2 ^ 10 == 1024)
+assert(2 ^ -2 == 0.25)
+assert(4 ^ 0.5 == 2)
+assert(10 ^ 2 == 100)
+assert(10 ^ 15 == 1e15)
+assert(10 ^ 22 == 1e22)
+assert(2 ^ 1023 * 2 == 1 / 0)
+assert(2 ^ -1074 == 5e-324)
+end
