@@ -59,12 +59,23 @@ Compiled natively inside hot loops (both profiles):
 
 - arithmetic on integers and floats (`+ - * / // % ^2 ^0.5`, unary minus),
   bitwise operators (Lua 5.5), comparisons, `not`, `and`/`or`, conditionals;
-- numeric `for` loops (integer and float, constant step), `while`,
-  `repeat`, `break`, `goto` loops, nested loops;
+- numeric `for` loops (integer and float, with a constant or a variable
+  step), `while`, `repeat`, `break`, `goto` loops, nested loops;
 - reads and writes of array elements with integer keys on tables whose
-  array part holds only integers or only floats, including appends that fit
-  the capacity; reads of numbers from mixed arrays; the length operator on
-  such tables;
+  array part holds only integers, only floats or only booleans, including
+  appends that fit the capacity; reads of numbers from mixed arrays; the
+  length operator on such tables;
+- reads and writes of **number fields** (`p.x = p.x + p.y`): the position
+  of the field is cached per access and guarded by the identity of the key;
+- reads of **upvalues** that hold numbers, functions or tables;
+- **calls of small Lua functions**: a callee made of simple instructions
+  (arithmetic, comparisons, field and array access, upvalue reads, further
+  such calls, tail calls) and forward branches (`if`, `and`/`or`, several
+  `return` statements) is translated in place of the call, up to three
+  levels deep. No frame is created unless native code is left inside the
+  callee. The paths through the callee must agree on the kind of each
+  result (a function that returns a number on one path and `nil` on
+  another is called through the interpreter);
 - truth tests and comparisons with `nil` on arbitrary values;
 - `math.sqrt`, `math.floor`, `math.ceil`, `math.abs` when reached through
   the unmodified `math` table.
@@ -72,20 +83,23 @@ Compiled natively inside hot loops (both profiles):
 Executed by the interpreter on behalf of native code (a *callout*; correct
 but with a fixed overhead of a few dozen nanoseconds each):
 
-- everything involving strings, hash-table field access (`t.name`),
-  upvalue access, table creation, closures, metamethods;
-- calls: Go functions run directly, Lua functions run in a nested
-  interpreter loop (and may enter native code themselves).
+- everything involving strings, fields that hold strings, tables or
+  functions, writes to upvalues, table creation, closures, metamethods;
+- calls of Go functions, and calls of Lua functions that are not inlined
+  (those with loops, varargs, more than 40 instructions or instructions
+  from this list):
+  they run in a nested interpreter loop and may enter native code
+  themselves.
 
 Not compiled (the loop stays in the interpreter):
 
 - generic `for` loops (`pairs`, `ipairs`, custom iterators), vararg
-  expressions, calls with a variable number of arguments or results,
-  tail calls and returns inside the loop body end the compiled region;
+  expressions, tail calls and returns inside the loop body end the
+  compiled region;
 - loops that mostly consist of callouts – the JIT measures this at run time
   and hands such loops back to the interpreter;
-- functions without loops. There is no function inlining and no native
-  call/return, so recursion (`fib`) is not accelerated.
+- functions without loops. There is no native call/return, so recursion
+  (`fib`) is not accelerated.
 
 ## Resource bounds
 

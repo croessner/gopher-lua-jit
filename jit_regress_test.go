@@ -827,3 +827,93 @@ func TestJITInlinedCallsAreNative(t *testing.T) {
 		}
 	}
 }
+
+// jitBranchyInlinePrograms exercise inlined callees with branches and
+// several return points.
+var jitBranchyInlinePrograms = map[string]string{
+	"max and clamp": `
+		local function max(a, b) if a > b then return a end return b end
+		local function clamp(x, lo, hi) if x < lo then return lo elseif x > hi then return hi else return x end end
+		local s = 0
+		for i = 1, 300 do s = s + max(i % 17, 9) + clamp(i - 150, -40, 60) end
+		return s`,
+	"and or expressions": `
+		local function pick(a, b) return a > b and a or b end
+		local function sign(x) return x > 0 and 1 or x < 0 and -1 or 0 end
+		local s = 0
+		for i = 1, 300 do s = s + pick(i % 13, 6) * sign(i - 150) end
+		return s`,
+	"default argument": `
+		local function scale(x, f) f = f or 2 return x * f end
+		local s = 0
+		for i = 1, 300 do s = s + scale(i) + scale(i, 0.5) end
+		return s`,
+	"branch assigns a local": `
+		local function f(x)
+			local r
+			if x % 3 == 0 then r = x * 2.0 else r = x + 0.5 end
+			return r + 1
+		end
+		local s = 0
+		for i = 1, 300 do s = s + f(i) end
+		return s`,
+	"paths return different kinds": `
+		local function f(x) if x % 5 == 0 then return nil end return x end
+		local function g(x) if x % 7 == 0 then return "seven" end return x end
+		local s, n = 0, 0
+		for i = 1, 300 do
+			local v = f(i)
+			if v then s = s + v else n = n + 1 end
+			local w = g(i)
+			if type(w) == "number" then s = s + w else n = n + #w end
+		end
+		return s, n`,
+	"paths return different counts": `
+		local function f(x) if x % 2 == 0 then return x, x end return x end
+		local s = 0
+		for i = 1, 300 do local a, b = f(i) s = s + a + (b or 100) end
+		return s`,
+	"nested branchy calls": `
+		local function abs(x) if x < 0 then return -x end return x end
+		local function dist(a, b) return abs(a - b) end
+		local function near(a, b, eps) return dist(a, b) <= eps end
+		local n = 0
+		for i = 1, 300 do if near(i % 10, 5, 2) then n = n + 1 end end
+		return n`,
+	"boolean results": `
+		local function even(x) return x % 2 == 0 end
+		local function both(a, b) return a and b end
+		local n = 0
+		for i = 1, 300 do if both(even(i), not even(i + 1)) then n = n + 1 end end
+		return n`,
+	"error on one path": `
+		local function f(x, t) if x > 250 then return x + t.missing end return x end
+		local t = {}
+		local ok, msg = pcall(function() local s = 0 for i = 1, 300 do s = s + f(i, t) end return s end)
+		return ok, (tostring(msg):gsub("^.-:%d+: ", ""))`,
+	"field dependent branch": `
+		local function cost(item) if item.heavy > 0 then return item.w * 2 else return item.w end end
+		local a, b = {w = 3, heavy = 1}, {w = 5, heavy = 0}
+		local s = 0
+		for i = 1, 300 do s = s + cost(i % 3 == 0 and a or b) end
+		return s`,
+}
+
+func TestJITBranchyInlinePrograms(t *testing.T) {
+	skipWithoutJIT(t)
+	for name, src := range jitBranchyInlinePrograms {
+		name, src := name, src
+		t.Run(name, func(t *testing.T) {
+			checkJITMatchesInterpreter(t, name, src)
+		})
+	}
+	for _, name := range []string{"max and clamp", "and or expressions", "branch assigns a local", "nested branchy calls"} {
+		for _, version := range []LanguageVersion{Lua51, Lua55} {
+			src := strings.Replace(jitBranchyInlinePrograms[name], "300", "20000", -1)
+			_, st := runChunk(jitTestOptions(version, 5), src)
+			if st.Compiled == 0 || st.Callouts > 200 || st.Blacklisted != 0 || st.Deopts > 50 {
+				t.Errorf("%s (%v): calls are not inlined: %s", name, version, st)
+			}
+		}
+	}
+}

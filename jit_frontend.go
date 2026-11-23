@@ -232,6 +232,9 @@ type jitFrontend struct {
 	scope    *LFunction
 	slotBase int
 	fbBase   int32
+	// edges collects the control flow edges inside the inlined callee
+	// that is being translated, by target position (see inlineBody).
+	edges map[int][]feEdge
 
 	// statistics for the profitability check
 	nativeOps int
@@ -696,6 +699,11 @@ func cloneState(st []slotState) []slotState {
 // connect adds a control flow edge from the IR block from (which must not
 // have a terminator yet) to the bytecode block at pc, carrying state st.
 func (fe *jitFrontend) connect(from *jit.Block, pc int, st []slotState) {
+	if fe.inl != 0 {
+		// inside an inlined callee: its blocks are joined by inlineBody
+		fe.edges[pc] = append(fe.edges[pc], feEdge{from, cloneState(st)})
+		return
+	}
 	tb := fe.blocks[pc]
 	if tb == nil {
 		// the edge leaves the loop: the interpreter continues at pc

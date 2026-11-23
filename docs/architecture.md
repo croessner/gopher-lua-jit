@@ -136,8 +136,33 @@ to the interpreter.
 Instructions without a native translation are executed by the interpreter
 through a **callout**: native code returns to Go, the driver writes the
 dirty registers back, runs the ordinary instruction handler, and resumes
-native code. Calls of Lua functions are callouts too (the callee runs in a
-nested interpreter loop and may itself enter native code).
+native code. Calls of Lua functions that are not inlined are callouts too
+(the callee runs in a nested interpreter loop and may itself enter native
+code).
+
+Three kinds of speculation go beyond registers (`jit_frontend.go`,
+`jit_inline.go`):
+
+- **Number fields.** A string-keyed table entry stores numbers unboxed
+  next to a cached boxed value (`tableField`). `p.x` compiles to a guarded
+  load from the entry at the position the field had when the code was
+  compiled: the entry must exist, carry that key (compared by the address
+  of its bytes; string constants are interned so that every function uses
+  the same copy) and hold a number. A store writes the number and marks
+  the cached box stale; the interpreter rebuilds it on its next read.
+  Sites that see several table layouts are left to the interpreter.
+- **Upvalues.** A closed upvalue is read from its cell; numbers are
+  unboxed, functions and tables become constants guarded by identity. An
+  open upvalue of an inlined callee that refers to a register of the
+  running activation is that register.
+- **Inlined calls.** The callee's instructions are translated in place
+  with its registers relocated to the slots behind the function value,
+  where its frame would be. Exits inside the callee name the chain of
+  inlined calls; the driver then pushes the callee frames (a tail call
+  replaces its caller) and the interpreter continues inside the callee, so
+  errors and tracebacks are unchanged. Only short functions without loops
+  whose instructions need no callout are inlined; their forward branches
+  are joined again with phis for registers that are unboxed on all paths.
 
 ### Middle and back end (`internal/jit`)
 
@@ -158,7 +183,9 @@ nested interpreter loop and may itself enter native code).
 Native code is entered through an assembly trampoline with one argument,
 the *context frame*: a `[]uint64` owned by the thread that holds the exit
 code, the resume address, the address of the Lua register window, the fuel
-counter, the register save areas and the spill slots.
+counter, the address of the running closure, the registry index of its
+first register, the address of the thread's registry, the register save
+areas and the spill slots.
 
 Every exit stores an exit id, dumps the allocatable registers into the save
 area and returns to Go. The driver then:
@@ -187,17 +214,19 @@ runtime while it runs. The backends guarantee:
    stack.
 2. **No calls into Go.** Allocation, table growth, metamethods, errors and
    calls are done by Go code after an exit.
-3. **No pointer writes.** Native code only writes numbers into pointer-free
-   memory (the context frame, `[]int64`/`[]float64` array parts, a slice
-   length word). It never stores a pointer into the Go heap, so no write
-   barrier is needed. Boxed values are never copied by native code; they
-   stay in their registry slot and moves are replayed by Go.
+3. **No pointer writes.** Native code only writes numbers into words that
+   hold no pointer (the context frame, `[]int64`/`[]float64` array parts,
+   a slice length word, the number and kind words of a table field). It
+   never stores a pointer into the Go heap, so no write barrier is needed.
+   Boxed values are never copied by native code; they stay in their
+   registry slot and moves are replayed by Go.
 4. **No hidden roots.** Every Go object native code reads is reachable from
-   GC visible memory for the whole native run (the registry, tables
-   referenced from it, and the unit's keep-alive list for tables whose
-   version word is read through an absolute address). Addresses derived
-   from Go objects are not kept across callouts. The collector does not
-   move heap objects.
+   GC visible memory for the whole native run: the registry and what it
+   refers to, and the unit's keep-alive lists for everything addressed
+   through a constant (tables whose version word is read, inlined callees
+   and their upvalue cells, key strings). Addresses derived from Go
+   objects are not kept across callouts. The collector does not move heap
+   objects.
 5. **Reserved registers.** The stack pointer, the frame pointer, the `g`
    register (R14 / R28), the arm64 platform register R18 and the arm64 link
    register are never modified.

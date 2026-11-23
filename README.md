@@ -109,9 +109,11 @@ Speed, on the benchmark kernels in [`benchmarks/`](benchmarks) (details and
 methodology in [docs/benchmarks.md](docs/benchmarks.md)):
 
 - the interpreter is on par with upstream GopherLua (it is the same design),
-- the JIT speeds up numeric and array loops by one to two orders of magnitude,
-- code dominated by function calls, string operations, hash-table field access
-  or metamethods is **not** accelerated by the JIT and runs at interpreter speed.
+- the JIT speeds up loops over numbers, arrays, number fields of tables and
+  calls of small Lua functions by one to two orders of magnitude,
+- code dominated by string operations, recursion, closures created in the
+  loop, metamethods or calls into Go is **not** accelerated by the JIT and
+  runs at interpreter speed.
 
 ## Documentation
 

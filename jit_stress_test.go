@@ -344,6 +344,8 @@ func (g *progGen) expr(depth int) string {
 			return fmt.Sprintf("%.3f", g.rng.Float64()*20-10)
 		case 2:
 			return "t[i % #t + 1]"
+		case 3:
+			return []string{"p.u", "p.v", "p.w", "q.u", "q.v", "k1", "k2"}[g.rng.Intn(7)]
 		default:
 			return g.v()
 		}
@@ -353,7 +355,7 @@ func (g *progGen) expr(depth int) string {
 	if g.lua55 {
 		ops = append(ops, "//", "&", "|", "~", "<<", ">>")
 	}
-	switch g.rng.Intn(10) {
+	switch g.rng.Intn(18) {
 	case 0:
 		return "math.floor(" + l + ")"
 	case 1:
@@ -362,6 +364,18 @@ func (g *progGen) expr(depth int) string {
 		return "-(" + l + ")"
 	case 3:
 		return "math.sqrt(math.abs(" + l + "))"
+	case 4:
+		return "h1(" + l + ", " + r + ")"
+	case 5:
+		return "h2(" + l + ")"
+	case 6:
+		return "h3(" + []string{"p", "q"}[g.rng.Intn(2)] + ", " + l + ")"
+	case 7:
+		return "(flags[i % 16 + 1] and " + l + " or " + r + ")"
+	case 8:
+		return "h5(" + l + ", " + r + ")"
+	case 9:
+		return "h6(" + l + ")"
 	}
 	op := ops[g.rng.Intn(len(ops))]
 	switch op {
@@ -380,6 +394,22 @@ func (g *progGen) cond() string {
 func (g *progGen) stmt() {
 	ind := strings.Repeat("  ", g.depth)
 	switch k := g.rng.Intn(10); {
+	case k < 1:
+		// fields, boolean array elements, helper results, upvalues
+		switch g.rng.Intn(12) {
+		case 0, 1, 2:
+			fmt.Fprintf(&g.sb, "%s%s = %s\n", ind, []string{"p.u", "p.v", "p.w", "q.u"}[g.rng.Intn(4)], g.expr(2))
+		case 3, 4:
+			fmt.Fprintf(&g.sb, "%sflags[i %% 16 + 1] = %s\n", ind, g.cond())
+		case 5, 6:
+			fmt.Fprintf(&g.sb, "%s%s, %s = h4(%s, %s)\n", ind, g.v(), g.v(), g.expr(1), g.expr(1))
+		case 7:
+			fmt.Fprintf(&g.sb, "%s%s = %s\n", ind, []string{"k1", "k2"}[g.rng.Intn(2)], g.expr(1))
+		case 8:
+			fmt.Fprintf(&g.sb, "%sif i %% 37 == 0 then q.v = %s end\n", ind, []string{"'7'", "nil", "true", "3"}[g.rng.Intn(4)])
+		default:
+			fmt.Fprintf(&g.sb, "%s%s = %s\n", ind, g.v(), g.expr(2))
+		}
 	case k < 4:
 		fmt.Fprintf(&g.sb, "%s%s = %s\n", ind, g.v(), g.expr(2))
 	case k < 5:
@@ -424,6 +454,15 @@ func (g *progGen) generate() string {
 		g.sb.WriteString(" * 1.5")
 	}
 	g.sb.WriteString(" end\n")
+	g.sb.WriteString("local p, q = {u = 1, v = 2.5, w = -3}, {v = 4, extra = 's', u = 9}\n")
+	g.sb.WriteString("local flags = {}\nfor i = 1, 16 do flags[i] = i % 3 == 0 end\n")
+	g.sb.WriteString("local k1, k2 = 3, 0.5\n")
+	g.sb.WriteString("local function h1(m, n) return m * k1 + n end\n")
+	g.sb.WriteString("local function h2(m) return h1(m, k2) - m end\n")
+	g.sb.WriteString("local function h3(o, m) o.u = o.u + m return o.v end\n")
+	g.sb.WriteString("local function h4(m, n) return n, m end\n")
+	g.sb.WriteString("local function h5(m, n) if m > n then return m end return n end\n")
+	g.sb.WriteString("local function h6(m) local r = m if m < 0 then r = -m end return r + (m > k1 and 1 or 0) end\n")
 	g.sb.WriteString("local ok, err = pcall(function()\n")
 	fmt.Fprintf(&g.sb, "for i = 1, %d do\n", 30+g.rng.Intn(150))
 	g.depth = 1
@@ -434,6 +473,9 @@ func (g *progGen) generate() string {
 	g.sb.WriteString("local parts = {tostring(ok), ok and '' or (string.gsub(tostring(err), '^.-:%d+: ', ''))}\n")
 	g.sb.WriteString("for _, v in ipairs({a, b, c, d, x, y}) do parts[#parts + 1] = string.format('%.14g', v) end\n")
 	g.sb.WriteString("for i = 1, #t do parts[#parts + 1] = string.format('%.14g', t[i]) end\n")
+	g.sb.WriteString("for _, v in ipairs({p.u or 'nil', p.v or 'nil', p.w or 'nil', q.u or 'nil', q.v or 'nil', k1, k2}) do\n")
+	g.sb.WriteString("  parts[#parts + 1] = type(v) == 'number' and string.format('%.14g', v) or tostring(v)\nend\n")
+	g.sb.WriteString("for i = 1, #flags do parts[#parts + 1] = tostring(flags[i]) end\n")
 	g.sb.WriteString("return table.concat(parts, ' ')\n")
 	return g.sb.String()
 }

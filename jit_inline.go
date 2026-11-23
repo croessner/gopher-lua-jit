@@ -14,9 +14,9 @@ import (
 // callee only has to create the frame (see jitEnterInlined) for the
 // interpreter to continue there.
 //
-// Only functions that are a straight line of simple instructions are
-// inlined; a callee with branches, loops, varargs or instructions that
-// need the interpreter is called through the interpreter as before.
+// Only functions made of simple instructions and forward branches are
+// inlined; a callee with loops, varargs or instructions that need the
+// interpreter is called through the interpreter as before.
 
 // relocateInst adds delta to the register operands of an instruction
 // that inlinableProto accepts. It reports false if a register does not
@@ -38,7 +38,14 @@ func relocateInst(inst uint32, delta int) (uint32, bool) {
 	}
 	a, b, c := opGetArgA(inst), opGetArgB(inst), opGetArgC(inst)
 	switch opGetOpCode(inst) {
-	case OP_LOADK, OP_LOADBOOL, OP_GETUPVAL, OP_GETGLOBAL, OP_CALL, OP_TAILCALL, OP_RETURN:
+	case OP_JMP:
+	case OP_EQ, OP_LT, OP_LE:
+		opSetArgB(&inst, rk(b))
+		opSetArgC(&inst, rk(c))
+	case OP_TESTSET:
+		opSetArgA(&inst, reg(a))
+		opSetArgB(&inst, reg(b))
+	case OP_LOADK, OP_LOADBOOL, OP_GETUPVAL, OP_GETGLOBAL, OP_CALL, OP_TAILCALL, OP_RETURN, OP_TEST:
 		opSetArgA(&inst, reg(a))
 	case OP_MOVE, OP_MOVEN, OP_LOADNIL, OP_UNM, OP_NOT, OP_LEN, OP_BNOT:
 		opSetArgA(&inst, reg(a))
@@ -59,37 +66,113 @@ func relocateInst(inst uint32, delta int) (uint32, bool) {
 }
 
 // inlinableProto reports whether a function can be translated in place of
-// a call and returns the position of the instruction that ends it: a
-// return of a fixed number of values or a tail call.
-func inlinableProto(proto *FunctionProto) (ret int, ok bool) {
-	if proto.IsVarArg != 0 {
-		return 0, false
+// a call: it is short, has a fixed number of parameters, only jumps
+// forward and consists of instructions that relocateInst knows.
+func inlinableProto(proto *FunctionProto) bool {
+	if proto.IsVarArg != 0 || len(proto.Code) > jitMaxInlineInsts {
+		return false
 	}
 	for pc, inst := range proto.Code {
-		if pc >= jitMaxInlineInsts {
-			return 0, false
-		}
 		b, c := opGetArgB(inst), opGetArgC(inst)
 		switch opGetOpCode(inst) {
-		case OP_RETURN, OP_TAILCALL:
-			return pc, b != 0
-		case OP_LOADBOOL:
-			if c != 0 {
-				return 0, false // skips the next instruction
+		case OP_TAILCALL:
+			if b == 0 {
+				return false
+			}
+		case OP_RETURN:
+			// (a tail call is followed by a return of all its results
+			// that is never executed)
+			if b == 0 && (pc == 0 || opGetOpCode(proto.Code[pc-1]) != OP_TAILCALL) {
+				return false
 			}
 		case OP_CALL:
 			if b == 0 || c == 0 {
-				return 0, false
+				return false
 			}
-		case OP_MOVE, OP_MOVEN, OP_LOADK, OP_LOADNIL, OP_GETUPVAL, OP_GETGLOBAL,
+		case OP_JMP:
+			if target := pc + 1 + opGetArgSbx(inst); target <= pc || target >= len(proto.Code) {
+				return false
+			}
+		case OP_MOVE, OP_MOVEN, OP_LOADK, OP_LOADBOOL, OP_LOADNIL, OP_GETUPVAL, OP_GETGLOBAL,
 			OP_GETTABLE, OP_GETTABLEKS, OP_SETTABLE, OP_SETTABLEKS,
 			OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_POW, OP_IDIV, OP_BAND, OP_BOR, OP_BXOR, OP_SHL, OP_SHR,
-			OP_UNM, OP_NOT, OP_LEN, OP_BNOT:
+			OP_UNM, OP_NOT, OP_LEN, OP_BNOT, OP_EQ, OP_LT, OP_LE, OP_TEST, OP_TESTSET:
 		default:
-			return 0, false
+			return false
 		}
 	}
-	return 0, false
+	return true
+}
+
+// mergeSlot combines the states a register has on the paths that meet at
+// a join. It reports whether the states are compatible; phi is true if
+// the merged state needs a phi over the values of the paths.
+func mergeSlot(states []slotState) (merged slotState, phi, ok bool) {
+	first := states[0]
+	same, clean, kind := true, true, true
+	for i := range states {
+		s := &states[i]
+		if *s != first {
+			same = false
+		}
+		if s.stale() {
+			clean = false
+		}
+		if s.kind != first.kind {
+			kind = false
+		}
+	}
+	switch {
+	case same:
+		return first, false, true
+	case clean:
+		// the home slot is current on every path
+		return slotState{}, false, true
+	case kind && (first.kind == skInt || first.kind == skFloat || first.kind == skBool):
+		return slotState{kind: first.kind, dirty: true}, true, true
+	}
+	return slotState{}, false, false
+}
+
+// joinInline joins the paths in edges in a new block and merges their
+// register states. Only the slots for which needed reports true have to
+// be compatible; the others are dropped. It reports false if the paths
+// cannot be joined.
+func (fe *jitFrontend) joinInline(edges []feEdge, needed func(slot int) bool) bool {
+	if len(edges) == 1 {
+		fe.cur, fe.st = edges[0].from, edges[0].st
+		return true
+	}
+	join := fe.f.NewBlock()
+	for _, e := range edges {
+		jumpIR(e.from, join)
+	}
+	st := cloneState(edges[0].st)
+	states := make([]slotState, len(edges))
+	for slot := range st {
+		for i, e := range edges {
+			states[i] = e.st[slot]
+		}
+		merged, phi, ok := mergeSlot(states)
+		switch {
+		case !ok && needed(slot):
+			return false
+		case !ok:
+			merged = slotState{}
+		case phi:
+			typ := jit.TInt
+			if merged.kind == skFloat {
+				typ = jit.TFloat
+			}
+			merged.val = fe.f.NewPhi(join, typ)
+			for i := range states {
+				merged.val.Args = append(merged.val.Args, states[i].val)
+			}
+		}
+		st[slot] = merged
+	}
+	fe.cur, fe.st = join, st
+	return true
 }
 
 // calleeAt returns the Lua function in register a if the code can treat
@@ -144,8 +227,7 @@ func (fe *jitFrontend) inlineCallAs(a, b, c int, tail bool) (done, ended bool) {
 		return false, false
 	}
 	proto := fn.Proto
-	ret, ok := inlinableProto(proto)
-	if !ok || proto.Version != fe.proto.Version {
+	if !inlinableProto(proto) || proto.Version != fe.proto.Version {
 		return false, false
 	}
 	depth := 0
@@ -160,8 +242,8 @@ func (fe *jitFrontend) inlineCallAs(a, b, c int, tail bool) (done, ended bool) {
 	}
 	base := a + 1
 	need := base + proto.analysis().nslots
-	for pc := 0; pc <= ret; pc++ {
-		if _, ok := relocateInst(proto.Code[pc], base); !ok {
+	for _, inst := range proto.Code {
+		if _, ok := relocateInst(inst, base); !ok {
 			return false, false
 		}
 	}
@@ -209,59 +291,124 @@ func (fe *jitFrontend) inlineCallAs(a, b, c int, tail bool) (done, ended bool) {
 	fe.fbBase = (saved.fbBase*31+int32(saved.pc)+1)<<8&0x3fffff00 | 1<<30
 	fe.env = functionEnv(fn)
 	fe.pendingTop, fe.openTop = -1, -1
-	restore := func() {
-		fe.inl, fe.scope, fe.proto, fe.slotBase = saved.inl, saved.scope, saved.proto, saved.slotBase
-		fe.fbBase, fe.env, fe.pc = saved.fbBase, saved.env, saved.pc
-		fe.pendingTop, fe.openTop = -1, -1
+	fe.edges = make(map[int][]feEdge)
+	nres, ok := fe.inlineBody(a, c, need)
+	fe.inl, fe.scope, fe.proto, fe.slotBase = saved.inl, saved.scope, saved.proto, saved.slotBase
+	fe.fbBase, fe.env, fe.pc, fe.edges = saved.fbBase, saved.env, saved.pc, saved.edges
+	fe.pendingTop, fe.openTop = -1, -1
+	switch {
+	case fe.restart:
+		return true, true
+	case !ok:
+		// the paths of the callee cannot be joined: translate again
+		// without inlining this call
+		fe.jp.feedback[site] = jitFieldMisses
+		fe.restart = true
+		return true, true
+	case nres < 0:
+		return true, true // every path leaves native code
 	}
-	for pc := 0; pc < ret; pc++ {
-		fe.pc = pc
-		if _, ended := fe.inst(pc); ended || fe.restart {
-			restore()
-			return true, true
-		}
-	}
-	// the callee ends with a return of n values from register from, or
-	// with a tail call that is translated in place as well
-	term := fe.code(ret)
-	from, n := opGetArgA(term), opGetArgB(term)-1
-	if opGetOpCode(term) == OP_TAILCALL {
-		fe.pc = ret
-		done, ended := fe.inlineCallAs(from, opGetArgB(term), c, true)
-		if !done {
-			// the interpreter takes over at the tail call
-			fe.unsupported()
-			ended = true
-		}
-		if ended || fe.restart {
-			restore()
-			return true, true
-		}
-		n = nret
-		if c == 0 {
-			n = fe.openTop - from
-		}
-	}
-	// the results move down into the registers of the call; values the
-	// callee did not return are nil
 	if c == 0 {
-		nret = n
+		fe.openTop = a + nres
 	}
-	for i := 0; i < nret; i++ {
-		if i < n {
-			fe.move(a+i, from+i)
-		} else {
-			fe.st[a+i] = slotState{kind: skNil}
-		}
-	}
-	restore()
-	if c == 0 {
-		fe.openTop = a + nret
-	}
-	for s := a + nret; s < need; s++ {
+	for s := a + nres; s < need; s++ {
 		fe.st[s] = slotState{}
 	}
 	return true, false
+}
+
+// inlineBody translates the instructions of the callee of an inlined
+// call whose function value is in slot a. Control flow inside the callee
+// only goes forward, so its instructions are translated in order; paths
+// that meet are joined, and so are the paths that return. The results
+// end up in the slots from a on. It returns their number (-1 if no path
+// returns to the caller) and false if paths could not be joined.
+func (fe *jitFrontend) inlineBody(a, c, need int) (nres int, ok bool) {
+	proto, base := fe.proto, fe.slotBase
+	info := proto.analysis()
+	var returns []feEdge
+	nres = -1
+	reachable := true
+	for pc := 0; pc < len(proto.Code); pc++ {
+		if incoming := fe.edges[pc]; len(incoming) > 0 {
+			if reachable {
+				incoming = append(incoming, feEdge{fe.cur, cloneState(fe.st)})
+			}
+			delete(fe.edges, pc)
+			live := &info.liveIn[pc]
+			if !fe.joinInline(incoming, func(slot int) bool { return slot < base || live.has(slot-base) }) {
+				return 0, false
+			}
+			reachable = true
+		}
+		if !reachable {
+			continue
+		}
+		fe.pc = pc
+		inst := fe.code(pc)
+		op := opGetOpCode(inst)
+		if op != OP_RETURN && op != OP_TAILCALL {
+			if _, ended := fe.inst(pc); ended {
+				reachable = false
+			}
+			if fe.restart {
+				return 0, true
+			}
+			continue
+		}
+		// the path returns n values from register from, directly or
+		// through a tail call that is translated in place as well
+		from, n := opGetArgA(inst), opGetArgB(inst)-1
+		if n < 0 {
+			return 0, false // an open return that a jump reaches after all
+		}
+		if op == OP_TAILCALL {
+			done, ended := fe.inlineCallAs(from, opGetArgB(inst), c, true)
+			if !done {
+				// the interpreter takes over at the tail call
+				fe.unsupported()
+				ended = true
+			}
+			if fe.restart {
+				return 0, true
+			}
+			if ended {
+				reachable = false
+				continue
+			}
+			n = c - 1
+			if c == 0 {
+				n = fe.openTop - from
+			}
+		}
+		// the results move down into the registers of the call; values
+		// the callee did not return are nil
+		want := c - 1
+		if c == 0 {
+			want = n
+		}
+		if nres >= 0 && nres != want {
+			return 0, false // paths return different numbers of values
+		}
+		nres = want
+		for i := 0; i < want; i++ {
+			if i < n {
+				fe.move(a+i, from+i)
+			} else {
+				fe.st[a+i] = slotState{kind: skNil}
+			}
+		}
+		returns = append(returns, feEdge{fe.cur, cloneState(fe.st)})
+		reachable = false
+	}
+	if len(returns) == 0 {
+		return -1, true
+	}
+	// behind the call only the results and the caller's registers count
+	if !fe.joinInline(returns, func(slot int) bool { return slot < a+nres }) {
+		return 0, false
+	}
+	return nres, true
 }
 
 // jitEnterInlined creates the frames of the inlined calls an exit lies
