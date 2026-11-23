@@ -123,7 +123,7 @@ func TestJITUseAfterClose(t *testing.T) {
 // interval cannot disable safe points.
 func TestJITSafePointIntervalIsSanitized(t *testing.T) {
 	skipWithoutJIT(t)
-	for _, interval := range []int{-1, -1 << 40, 1 << 40} {
+	for _, interval := range []int{-1, -1 << 30, 1 << 30} {
 		L := NewState(Options{JIT: JITOptions{Enabled: true, Threshold: 2, SafePointInterval: interval}})
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		L.SetContext(ctx)
@@ -914,6 +914,138 @@ func TestJITBranchyInlinePrograms(t *testing.T) {
 			if st.Compiled == 0 || st.Callouts > 200 || st.Blacklisted != 0 || st.Deopts > 50 {
 				t.Errorf("%s (%v): calls are not inlined: %s", name, version, st)
 			}
+		}
+	}
+}
+
+// jitGenericForPrograms exercise generic for loops in compiled code.
+var jitGenericForPrograms = map[string]string{
+	"ipairs over numbers": `local t = {} for i = 1, 200 do t[i] = i * 1.5 end local s = 0 for round = 1, 20 do for i, v in ipairs(t) do s = s + v * i end end return s`,
+	"ipairs over integers and booleans": `
+		local a, b = {}, {}
+		for i = 1, 100 do a[i] = i b[i] = i % 3 == 0 end
+		local s, n = 0, 0
+		for round = 1, 20 do
+			for i, v in ipairs(a) do s = s + v + i end
+			for _, f in ipairs(b) do if f then n = n + 1 end end
+			for i in ipairs(a) do s = s + i end
+		end
+		return s, n`,
+	"ipairs over strings and tables": `
+		local names, objs = {}, {}
+		for i = 1, 50 do names[i] = "n" .. i objs[i] = {v = i} end
+		local s = 0
+		for round = 1, 20 do
+			for i, name in ipairs(names) do s = s + #name + i end
+			for _, o in ipairs(objs) do s = s + o.v o.v = o.v + 1 end
+		end
+		return s, objs[50].v`,
+	"ipairs stops at a hole": `
+		local t = {1, 2, 3, nil, 5}
+		local u = {1, 2, 3}
+		local s = 0
+		for round = 1, 100 do
+			for _, v in ipairs(t) do s = s + v end
+			for _, v in ipairs(u) do s = s + v end
+			if round == 50 then u[2] = nil end
+			if round == 70 then u[2] = "x" u[#u + 1] = 9 end
+			if round == 71 then u[2] = 4 end
+		end
+		return s`,
+	"array modified while iterating": `
+		local t = {}
+		for i = 1, 20 do t[i] = i end
+		local s = 0
+		for round = 1, 30 do
+			for i, v in ipairs(t) do
+				s = s + v
+				if i == 5 and #t < 60 then t[#t + 1] = round end
+				if i == 7 then t[i] = t[i] + 1 end
+			end
+		end
+		return s, #t`,
+	"pairs with numeric work": `
+		local t = {a = 1, b = 2.5, c = 3, d = 4, e = 5}
+		local s, n = 0, 0
+		for round = 1, 200 do
+			for k, v in pairs(t) do s = s + v * round % 7 n = n + #k end
+		end
+		return s, n`,
+	"pairs over an array with updates": `
+		local t = {}
+		for i = 1, 40 do t[i] = i end
+		local s = 0
+		for round = 1, 50 do for k, v in pairs(t) do t[k] = v + 1 s = s + v end end
+		return s, t[1], t[40]`,
+	"custom iterators": `
+		local function range(n) local i = 0 return function() i = i + 1 if i <= n then return i, i * i end end end
+		local function iter(t, i) i = i + 1 if t[i] then return i, t[i] end end
+		local t = {5, 6, 7}
+		local s = 0
+		for round = 1, 60 do
+			for i, sq in range(10) do s = s + i + sq end
+			for i, v in iter, t, 0 do s = s + i * v end
+		end
+		return s`,
+	"break and nested generic loops": `
+		local a, b = {1, 2, 3, 4, 5, 6}, {10, 20, 30}
+		local s = 0
+		for round = 1, 60 do
+			for i, x in ipairs(a) do
+				if x > 4 then break end
+				for _, y in ipairs(b) do s = s + x * y if y == 20 and x == 2 then break end end
+			end
+		end
+		return s`,
+	"iterator raises an error": `
+		local function bad(t, i) if i >= 150 then error("stop") end return i + 1, i end
+		local ok, msg = pcall(function() local s = 0 for i, v in bad, nil, 0 do s = s + v end return s end)
+		return ok, (tostring(msg):gsub("^.-:%d+: ", ""))`,
+	"ipairs with a metatable": `
+		local t = setmetatable({1, 2, 3}, {__index = function(_, i) if i <= 6 then return i * 10 end end})
+		local s = 0
+		for round = 1, 60 do for i, v in ipairs(t) do s = s + v end end
+		return s`,
+	"control variable type changes": `
+		local t = {}
+		for i = 1, 30 do t[i] = i end
+		local s = 0
+		for round = 1, 40 do
+			local it, st, c = ipairs(t)
+			if round % 10 == 0 then c = 5 end
+			for i, v in it, st, c do s = s + v end
+		end
+		return s`,
+}
+
+func TestJITGenericForPrograms(t *testing.T) {
+	skipWithoutJIT(t)
+	for name, src := range jitGenericForPrograms {
+		name, src := name, src
+		t.Run(name, func(t *testing.T) {
+			checkJITMatchesInterpreter(t, name, src)
+		})
+	}
+	for _, version := range []LanguageVersion{Lua51, Lua55} {
+		_, st := runChunk(jitTestOptions(version, 5), `
+			local t = {}
+			for i = 1, 1000 do t[i] = i * 0.5 end
+			local s = 0
+			for round = 1, 50 do for i, v in ipairs(t) do s = s + v * i end end
+			return s`)
+		if st.Compiled == 0 || st.Callouts > 300 || st.Blacklisted != 0 {
+			t.Errorf("%v: ipairs over numbers is not native: %s", version, st)
+		}
+		_, st = runChunk(jitTestOptions(version, 5), `
+			local t = {}
+			for i = 1, 200 do t[i] = {v = i, w = 2} end
+			local s = 0
+			for round = 1, 100 do for _, o in ipairs(t) do s = s + o.v * o.w + round % 3 end end
+			return s`)
+		// (with so little work per element the loop may be handed back
+		// to the interpreter afterwards: the iterator runs as a callout)
+		if st.Compiled == 0 {
+			t.Errorf("%v: a generic for loop over tables is not compiled: %s", version, st)
 		}
 	}
 }

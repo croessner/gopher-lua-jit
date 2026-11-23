@@ -407,6 +407,13 @@ func (g *progGen) stmt() {
 			fmt.Fprintf(&g.sb, "%s%s = %s\n", ind, []string{"k1", "k2"}[g.rng.Intn(2)], g.expr(1))
 		case 8:
 			fmt.Fprintf(&g.sb, "%sif i %% 37 == 0 then q.v = %s end\n", ind, []string{"'7'", "nil", "true", "3"}[g.rng.Intn(4)])
+		case 9:
+			v := g.v()
+			fmt.Fprintf(&g.sb, "%sfor n, e in ipairs(t) do %s = %s + e * n end\n", ind, v, v)
+		case 10:
+			v := g.v()
+			fmt.Fprintf(&g.sb, "%sfor _, e in pairs(%s) do if type(e) == 'number' then %s = %s + e end end\n",
+				ind, []string{"p", "q", "flags"}[g.rng.Intn(3)], v, v)
 		default:
 			fmt.Fprintf(&g.sb, "%s%s = %s\n", ind, g.v(), g.expr(2))
 		}

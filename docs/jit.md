@@ -76,6 +76,10 @@ Compiled natively inside hot loops (both profiles):
   callee. The paths through the callee must agree on the kind of each
   result (a function that returns a number on one path and `nil` on
   another is called through the interpreter);
+- generic `for` loops: the loop body is compiled; `ipairs` over an array
+  of numbers or booleans advances natively, every other iterator
+  (`pairs`, `ipairs` over other values, custom iterators) is called
+  through the interpreter once per iteration;
 - truth tests and comparisons with `nil` on arbitrary values;
 - `math.sqrt`, `math.floor`, `math.ceil`, `math.abs` when reached through
   the unmodified `math` table.
@@ -93,8 +97,7 @@ but with a fixed overhead of a few dozen nanoseconds each):
 
 Not compiled (the loop stays in the interpreter):
 
-- generic `for` loops (`pairs`, `ipairs`, custom iterators), vararg
-  expressions, tail calls and returns inside the loop body end the
+- vararg expressions, tail calls and returns inside the loop body end the
   compiled region;
 - loops that mostly consist of callouts – the JIT measures this at run time
   and hands such loops back to the interpreter;

@@ -97,6 +97,27 @@ func opForLoopJIT(L *LState, inst uint32, baseframe *callFrame) int {
 	return 0
 }
 
+// opTForLoopJIT is OP_TFORLOOP with hot loop detection: the instruction
+// jumps back to the loop body itself when the iterator returned a value.
+// A generic for loop is entered at this instruction and comes back to
+// it after every iteration, so it is the header of the loop: native code
+// takes over before the instruction is executed.
+func opTForLoopJIT(L *LState, inst uint32, baseframe *callFrame) int {
+	js := L.G.jit
+	if th := L.jit; th != nil && th.skipHeader {
+		th.skipHeader = false
+	} else if js != nil {
+		cf := L.currentFrame
+		cf.Pc-- // the position of this instruction
+		entries := js.stats.Entries
+		if r := jitBackEdge(L, cf, baseframe); js.stats.Entries != entries {
+			return r
+		}
+		cf.Pc++
+	}
+	return jumpTable[OP_TFORLOOP](L, inst, baseframe)
+}
+
 // opJmpJIT is OP_JMP with hot loop detection on backward jumps.
 func opJmpJIT(L *LState, inst uint32, baseframe *callFrame) int {
 	cf := L.currentFrame
@@ -484,6 +505,9 @@ loop:
 				return result
 			}
 			cf.Pc = x.PC
+			if x.PC == u.loop.pc && int(cf.Fn.Proto.Code[x.PC]>>26) == OP_TFORLOOP {
+				th.skipHeader = true
+			}
 			break loop
 		}
 	}

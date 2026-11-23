@@ -257,6 +257,10 @@ type jitThread struct {
 	frames [][]uint64
 	// acts is the stack of running native activations.
 	acts []*jitUnit
+	// skipHeader is set when native code handed the instruction at a loop
+	// header back to the interpreter: the loop is not entered again
+	// before the interpreter has executed that instruction.
+	skipHeader bool
 }
 
 var jitTables struct {
@@ -270,6 +274,7 @@ func jitJumpTable() *[opCodeMax + 1]instFunc {
 	jitTables.once.Do(func() {
 		jitTables.table = jumpTable
 		jitTables.table[OP_FORLOOP] = opForLoopJIT
+		jitTables.table[OP_TFORLOOP] = opTForLoopJIT
 		jitTables.table[OP_JMP] = opJmpJIT
 	})
 	return &jitTables.table

@@ -501,9 +501,17 @@ func (fe *jitFrontend) writtenInLoop(header int) *regSet {
 // header that jump backward in the bytecode.
 func (fe *jitFrontend) naturalLoop(header int) map[int]bool {
 	loop := map[int]bool{header: true}
+	// Back-edges come from the loop body, which lies behind the header.
+	// (Edges from before the header belong to an enclosing loop.) The
+	// header of a generic for loop is its last instruction: its body
+	// lies between the jump target of that instruction and the header.
+	lo, hi := header, len(fe.proto.Code)
+	if opGetOpCode(fe.proto.Code[header]) == OP_TFORLOOP {
+		lo, hi = fe.info.effects[header].succs[0], header
+	}
 	var work []int
 	for _, p := range fe.preds[header] {
-		if p >= header {
+		if p >= lo && p < hi || p == header {
 			work = append(work, p)
 		}
 	}
@@ -776,6 +784,35 @@ func (fe *jitFrontend) conform(from *jit.Block, tb *feBlock, st []slotState) {
 	}
 }
 
+// unboxLoopCarried prepares the entry of a loop that lies inside the
+// compiled region. A register that the loop modifies and that arrives
+// boxed, but holds a number right now, is unboxed on the entering edges:
+// the loop then carries it in a machine register instead of writing it
+// back on every iteration. (The registers of the compiled loop itself
+// are unboxed in the entry block.)
+func (fe *jitFrontend) unboxLoopCarried(tb *feBlock, live *regSet) {
+	written := fe.writtenInLoop(tb.pc)
+	cur, st, pc := fe.cur, fe.st, fe.pc
+	fe.pc = tb.pc
+	for i := range tb.incoming {
+		in := &tb.incoming[i]
+		for slot := 0; slot < fe.info.nslots; slot++ {
+			if in.st[slot].kind != skHome || !live.has(slot) || !written.has(slot) ||
+				fe.info.escaped.has(slot) || fe.demoted[demoteKey{tb.pc, slot}] {
+				continue
+			}
+			fe.cur, fe.st = in.from, in.st
+			switch fe.predictKind(slot) {
+			case vkInt:
+				fe.unbox(slot, skInt)
+			case vkFloat:
+				fe.unbox(slot, skFloat)
+			}
+		}
+	}
+	fe.cur, fe.st, fe.pc = cur, st, pc
+}
+
 // demote forces a register to stay boxed at the entry of a block and
 // requests a new translation attempt.
 func (fe *jitFrontend) demote(pc, slot int) {
@@ -802,6 +839,9 @@ func (fe *jitFrontend) startBlock(tb *feBlock) bool {
 	live := &fe.info.liveIn[tb.pc]
 	st := make([]slotState, fe.nslots)
 	pending := tb.npreds > len(tb.incoming) // back-edges will arrive later
+	if pending {
+		fe.unboxLoopCarried(tb, live)
+	}
 	for slot := 0; slot < fe.nslots; slot++ {
 		if !live.has(slot) || fe.demoted[demoteKey{tb.pc, slot}] {
 			continue
@@ -1140,6 +1180,12 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 		if !fe.getUpval(A, B) {
 			return fe.generic(pc, op)
 		}
+	case OP_TFORLOOP:
+		if fe.inl != 0 {
+			return fe.generic(pc, op)
+		}
+		fe.genericFor(A, B, C)
+		return 0, true
 	case OP_GETTABLEKS:
 		if !fe.constField(A, B, C) && !fe.getField(A, B, C) {
 			return fe.generic(pc, op)
@@ -1194,7 +1240,7 @@ func (fe *jitFrontend) generic(pc, op int) (int, bool) {
 		OP_GETTABLE, OP_GETTABLEKS, OP_SETGLOBAL, OP_SETENV, OP_SETUPVAL, OP_SETTABLE,
 		OP_SETTABLEKS, OP_NEWTABLE, OP_SELF, OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_POW,
 		OP_IDIV, OP_BAND, OP_BOR, OP_BXOR, OP_SHL, OP_SHR, OP_UNM, OP_BNOT, OP_NOT, OP_LEN,
-		OP_CONCAT, OP_CLOSE, OP_CLOSURE, OP_ERRNNIL:
+		OP_CONCAT, OP_CLOSE, OP_CLOSURE, OP_ERRNNIL, OP_TBC:
 		fe.calloutInst()
 		return next, false
 	case OP_SETLIST:
