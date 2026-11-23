@@ -60,13 +60,33 @@ func TestOsDateFormatUTCWithTwoParam(t *testing.T) {
 			if c.Timestamp != nil {
 				args = append(args, LNumber(*c.Timestamp))
 			}
-			err := ls.CallByParam(P{
-				Fn:      fn,
-				NRet:    1,
-				Protect: true,
-			}, args...)
-			if err != nil {
-				t.Fatal(err)
+			call := func() {
+				err := ls.CallByParam(P{
+					Fn:      fn,
+					NRet:    1,
+					Protect: true,
+				}, args...)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.Timestamp != nil {
+				call()
+			} else {
+				// os.date reads the clock itself: compare with the time
+				// of a call during which the second did not change
+				for attempt := 0; ; attempt++ {
+					before := time.Now()
+					call()
+					if after := time.Now(); before.Unix() == after.Unix() || attempt == 5 {
+						c.Now = before
+						if c.Format[0] == '!' {
+							c.Now = before.UTC()
+						}
+						break
+					}
+					ls.Pop(1)
+				}
 			}
 
 			result := ls.ToTable(-1)
