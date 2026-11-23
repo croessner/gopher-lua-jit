@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, go ${{ matrix.go }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # JIT: linux/amd64, linux/arm64, darwin/arm64, darwin/amd64.
+        # Windows runs the interpreter only.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest]
+        go: ['1.23.x', 'stable']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - name: Build
+        run: go build ./...
+      # The two disabled analyzers report findings in code generated from
+      # the upstream GopherLua sources.
+      - name: Vet
+        run: go vet -unreachable=false -assign=false ./...
+      - name: Test
+        run: go test -count=1 ./...
+
+  race:
+    name: race (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Test with the race detector
+        run: go test -count=1 -race -short ./...
+
+  checks:
+    name: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l $(git ls-files '*.go' | grep -v '^_'))
+          if [ -n "$unformatted" ]; then
+            echo "not formatted with gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: Generated sources are up to date
+        run: |
+          make generate
+          git diff --exit-code -- vm.go state.go
+      - name: Platforms without JIT still build
+        run: |
+          for target in windows/amd64 linux/386 linux/riscv64 freebsd/amd64 js/wasm; do
+            echo "== $target"
+            GOOS=${target%/*} GOARCH=${target#*/} go build ./...
+          done
+      - name: Benchmarks build
+        working-directory: benchmarks
+        run: go test -count=1 -run xxx .
+      - name: Differential fuzzing (interpreter vs JIT)
+        run: go test -run xxx -fuzz FuzzJIT -fuzztime 30s .

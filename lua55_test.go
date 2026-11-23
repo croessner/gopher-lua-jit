@@ -4,20 +4,39 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
+
 	"strings"
 	"testing"
 )
 
+// lua55PosixScripts assert POSIX behaviour (shell commands, signals, the
+// error texts of the operating system, "/" in module paths). They are
+// skipped on Windows.
+var lua55PosixScripts = map[string]bool{
+	"base/load.lua":    true,
+	"base/package.lua": true,
+	"mtio/io.lua":      true,
+	"mtio/os.lua":      true,
+}
+
 // lua55ScriptFiles returns the Lua scripts of a conformance test group
-// (a directory below _lua55-tests).
+// (a directory below _lua55-tests) that apply to this platform.
 func lua55ScriptFiles(t *testing.T, group string) []string {
 	t.Helper()
-	files, err := filepath.Glob(filepath.Join("_lua55-tests", group, "*.lua"))
+	all, err := filepath.Glob(filepath.Join("_lua55-tests", group, "*.lua"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	sort.Strings(files)
+	sort.Strings(all)
+	files := all[:0]
+	for _, file := range all {
+		if runtime.GOOS == "windows" && lua55PosixScripts[group+"/"+filepath.Base(file)] {
+			continue
+		}
+		files = append(files, file)
+	}
 	return files
 }
 

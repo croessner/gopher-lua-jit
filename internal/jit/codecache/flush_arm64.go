@@ -6,8 +6,8 @@ package codecache
 // AArch64 has separate instruction and data caches that are not kept
 // coherent automatically.
 func flushICache(addr, size uintptr) {
-	flushICacheASM(addr, addr+size)
+	flushICacheASM(addr, addr+size, dataCacheLine, instCacheLine)
 }
 
 //go:noescape
-func flushICacheASM(start, end uintptr)
+func flushICacheASM(start, end, dline, iline uintptr)

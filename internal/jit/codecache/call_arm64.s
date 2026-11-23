@@ -13,18 +13,16 @@ TEXT ·callJIT(SB), NOSPLIT, $16-16
 	CALL (R0)
 	RET
 
-// func flushICacheASM(start, end uintptr)
+// func flushICacheASM(start, end, dline, iline uintptr)
 //
 // Synchronizes the instruction cache with the data cache for the address
-// range [start, end): DC CVAU and IC IVAU for every cache line (the line
-// sizes are read from CTR_EL0), followed by the required barriers.
-TEXT ·flushICacheASM(SB), NOSPLIT, $0-16
+// range [start, end): DC CVAU for every data cache line of dline bytes
+// and IC IVAU for every instruction cache line of iline bytes (both
+// powers of two), followed by the required barriers.
+TEXT ·flushICacheASM(SB), NOSPLIT, $0-32
 	MOVD start+0(FP), R0
 	MOVD end+8(FP), R1
-	MRS  CTR_EL0, R5
-	UBFX $16, R5, $4, R6 // DminLine: log2 of the data line size in words
-	MOVD $4, R2
-	LSL  R6, R2, R2      // data cache line size in bytes
+	MOVD dline+16(FP), R2
 	SUB  $1, R2, R3
 	BIC  R3, R0, R4
 dloop:
@@ -33,9 +31,7 @@ dloop:
 	CMP  R1, R4
 	BLO  dloop
 	WORD $0xd5033b9f     // dsb ish
-	AND  $15, R5, R6     // IminLine: log2 of the instruction line size in words
-	MOVD $4, R2
-	LSL  R6, R2, R2      // instruction cache line size in bytes
+	MOVD iline+24(FP), R2
 	SUB  $1, R2, R3
 	BIC  R3, R0, R4
 iloop:
