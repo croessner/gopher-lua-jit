@@ -572,7 +572,12 @@ func (ls *LState) jitExitNote(u *jitUnit, id int, m *exitMeta, base int, iterati
 				u.jp.feedback[key] = tb.akind
 			}
 		case fbField, fbUpval, fbInline, fbNarrow:
-			if u.jp.feedback[key] < jitFieldMisses {
+			// A miss counts against the speculation only if it is not
+			// rare: the last node of a list that lacks the "next" field
+			// costs one exit per traversal, which is cheaper than
+			// leaving the access to the interpreter on every node.
+			misses := uint64(u.exitCounts[id]) + 1
+			if misses*jitMissInterval > u.iterations && u.jp.feedback[key] < jitFieldMisses {
 				u.jp.feedback[key]++
 			}
 		}

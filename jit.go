@@ -113,8 +113,13 @@ const (
 	jitMaxFieldIndex = 256
 	// jitFieldMisses is the number of failed field guards after which an
 	// access is left to the interpreter: the site sees tables of several
-	// layouts.
+	// layouts. Only misses that are frequent count (see
+	// jitMissInterval).
 	jitFieldMisses = 3
+	// jitMissInterval is the number of loop iterations per failure of a
+	// guard up to which the failure counts as a wrong speculation; a
+	// guard that fails less often is cheaper than the alternative.
+	jitMissInterval = 32
 	// jitMaxShapeFields bounds the number of string-keyed entries of an
 	// object whose keys compiled code checks one by one to prove that a
 	// method name is not among them.
