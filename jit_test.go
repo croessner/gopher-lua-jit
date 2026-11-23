@@ -3,6 +3,7 @@ package lua
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -211,5 +212,23 @@ func TestJITLua55Conformance(t *testing.T) {
 				runLua55Scripts(t, group, jitTestOptions(Lua55, threshold))
 			})
 		}
+	}
+}
+
+// TestJITSupportedPlatforms makes sure that the JIT tests do not skip
+// themselves silently on the platforms the JIT is built for.
+func TestJITSupportedPlatforms(t *testing.T) {
+	if (runtime.GOOS != "linux" && runtime.GOOS != "darwin") || (runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64") {
+		if jitSupported() {
+			t.Errorf("the JIT claims to support %s/%s", runtime.GOOS, runtime.GOARCH)
+		}
+		return
+	}
+	if !jitSupported() {
+		t.Fatalf("the JIT is not available on %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	out, st := runChunk(jitTestOptions(Lua55, 2), `local s = 0 for i = 1, 1000 do s = s + i end return s`)
+	if out != "number:500500" || st.Compiled == 0 || st.Entries == 0 {
+		t.Errorf("no native code ran: %q, %s", out, st)
 	}
 }

@@ -114,18 +114,18 @@ The rules native code follows to coexist with the Go runtime are listed in
 [architecture.md](architecture.md#runtime-safety-contract). What has and has
 not been verified:
 
-- Verified by tests on darwin/amd64, linux/amd64 and linux/arm64 (under
-  QEMU user emulation): generated code against a reference interpreter of
+- Verified by tests on linux/amd64, linux/arm64, darwin/arm64 (Apple
+  Silicon) and darwin/amd64: generated code against a reference interpreter of
   the IR, the upstream test-suite and the Lua 5.5 conformance scripts with
   the JIT at threshold 1, randomly generated programs (interpreter versus
   JIT), concurrent states under garbage collection pressure, the race
   detector, stack growth around native calls, cancellation, code cache
   limits. Go 1.23, 1.25 and 1.27 were used.
-- **Not verified**: darwin/arm64 (no hardware was available; the code is
-  the same as for linux/arm64 apart from page size and cache flushing) and
-  real arm64 hardware in general. QEMU does not model instruction cache
-  coherency, so the explicit cache flush is exercised but its necessity is
-  not.
+- The arm64 platforms are tested in CI on GitHub-hosted runners only (no
+  arm64 development machine was available), which covers one CPU model per
+  operating system. On macOS the instruction cache is flushed with fixed
+  64-byte lines because user space cannot read the cache type register
+  there. Benchmarks were only run on amd64.
 - The design depends on properties of the Go runtime that hold for all
   current releases but are not part of the language specification: heap
   objects do not move, interface values and slices have their documented

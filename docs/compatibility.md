@@ -143,13 +143,22 @@ PUC-Rio Lua 5.1 (see the original README), plus the fixes in
 
 See [jit.md](jit.md). Summary of verification:
 
-| Check | darwin/amd64 | linux/amd64 | linux/arm64 (QEMU) | darwin/arm64 |
+| Check | linux/amd64 | linux/arm64 | darwin/arm64 | darwin/amd64 |
 |---|---|---|---|---|
-| encoder golden tests (vs. Go assembler) | pass | pass | pass | host independent |
-| native execution under GC pressure, `-race` | pass | pass | pass | not run |
-| IR pipeline vs. reference interpreter | pass | pass | pass | not run |
-| upstream suite and conformance scripts with JIT | pass | pass | pass | not run |
-| random differential programs, fuzzing | pass | pass | pass (short mode) | not run |
+| encoder golden tests (vs. Go assembler) | pass | pass | pass | pass |
+| native execution under GC pressure | pass | pass | pass | pass |
+| IR pipeline vs. reference interpreter | pass | pass | pass | pass |
+| upstream suite and conformance scripts with JIT | pass | pass | pass | pass |
+| random differential programs | pass | pass | pass | pass |
+| race detector | pass | not run | pass | pass |
+| coverage guided fuzzing | pass | not run | not run | pass |
+
+The GitHub Actions workflow (`.github/workflows/ci.yml`) runs the complete
+test-suite on GitHub-hosted runners for all four platforms (arm64 Linux and
+Apple Silicon are real hardware, not emulation) with Go 1.23 and the current
+stable release, and the interpreter-only build on Windows. The comparison
+with the oracle is skipped there because `lua5.5` is not installed on the
+runners; it runs on the development machine.
 
 ## 5. Review
 
@@ -158,7 +167,7 @@ After implementation the code was reviewed adversarially in two passes
 upstream GopherLua, the oracle and LuaJIT. The defects found, including
 several compiler bugs inherited from GopherLua, are fixed and covered by
 `jit_regress_test.go` and `compile_regress_test.go`. Not covered by that
-review: the arm64 backend at run time, the Lua 5.5 standard library beyond
+review: the arm64 backend beyond the test-suite, the Lua 5.5 standard library beyond
 incidental use, and third-party code using package `parse` directly.
 
 ## 6. How to reproduce

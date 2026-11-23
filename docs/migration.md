@@ -5,7 +5,7 @@
 The module path is unchanged. Add a `replace` directive and rebuild:
 
 ```bash
-go mod edit -replace github.com/yuin/gopher-lua=github.com/croessner/gopher-lua-jit@main
+go mod edit -replace github.com/yuin/gopher-lua=github.com/croessner/gopher-lua-jit@v0.1.0
 go mod tidy
 ```
 

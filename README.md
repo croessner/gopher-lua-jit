@@ -6,6 +6,9 @@
 > machine design, the Go API and most of the Lua 5.1 implementation here are
 > their work; everything in this repository is an extension of it.
 
+[![CI](https://github.com/croessner/gopher-lua-jit/actions/workflows/ci.yml/badge.svg)](https://github.com/croessner/gopher-lua-jit/actions/workflows/ci.yml)
+
+
 A Lua runtime for Go, derived from [GopherLua](https://github.com/yuin/gopher-lua),
 with two additions:
 
@@ -22,9 +25,9 @@ work by adding a `replace` directive.
 > Status: the interpreter and both language profiles are covered by the upstream
 > test-suite plus a conformance suite checked against the reference `lua5.5`
 > interpreter. The JIT is verified by differential tests against the interpreter
-> on darwin/amd64, linux/amd64 and (emulated) linux/arm64. darwin/arm64 is
-> implemented but **unverified**. See [Compatibility](docs/compatibility.md) for
-> the exact list of what is and is not implemented.
+> on linux/amd64, linux/arm64, darwin/amd64 and darwin/arm64 (all four run in
+> CI on every push). See [Compatibility](docs/compatibility.md) for the exact
+> list of what is and is not implemented.
 
 ## Installation
 
@@ -32,7 +35,7 @@ The module keeps GopherLua's import path, so it is used through a `replace`
 directive in the `go.mod` of your program:
 
 ```bash
-go mod edit -replace github.com/yuin/gopher-lua=github.com/croessner/gopher-lua-jit@main
+go mod edit -replace github.com/yuin/gopher-lua=github.com/croessner/gopher-lua-jit@v0.1.0
 go mod tidy
 ```
 
@@ -95,10 +98,11 @@ More: [examples/basic](examples/basic), [examples/jit](examples/jit),
 
 | Platform | Interpreter | JIT | Tested |
 |---|---|---|---|
-| darwin/amd64 | yes | yes | natively |
-| linux/amd64 | yes | yes | in Docker |
-| linux/arm64 | yes | yes | in Docker under QEMU emulation |
-| darwin/arm64 | yes | yes | **not verified** (no hardware available) |
+| linux/amd64 | yes | yes | CI |
+| linux/arm64 | yes | yes | CI (arm64 hardware) |
+| darwin/arm64 | yes | yes | CI (Apple Silicon) |
+| darwin/amd64 | yes | yes | CI and the development machine |
+| windows/amd64 | yes | falls back to the interpreter | CI (interpreter) |
 | everything else | yes | falls back to the interpreter | cross-compiled only |
 
 Speed, on the benchmark kernels in [`benchmarks/`](benchmarks) (details and
