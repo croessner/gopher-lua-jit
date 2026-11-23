@@ -90,6 +90,20 @@ on first use. Compared with GopherLua:
   would only cost memory, so every table counts them (`tail`) instead:
   the array part is the stored elements followed by that many nil slots.
   An element appended to the stored part takes the first of them.
+- **Sparse elements** (`table_sparse.go`). GopherLua stores every element
+  with an integer key below `MaxArrayIndex` (about 67 million) in the
+  array slice, so `t[1000000] = v` makes the slice a million slots long.
+  Here an element that is assigned more than 64 slots behind the stored
+  elements is kept in a map from slot to value instead; the slots in
+  between are among the counted nil slots. Every operation on the array
+  part is defined on the slots (the border, the ascending order of a
+  traversal, `table.insert` and `table.remove` moving slots), so the
+  results are the ones GopherLua computes on its slice, at the cost of
+  the elements that exist. The slot right behind the stored elements is
+  never in the map: an element that gets there joins the stored
+  elements, which is what `ipairs` and compiled code rely on. Compiled
+  code leaves the length of, and appends to, a table with sparse
+  elements to the interpreter.
 - **A version counter** that is bumped when a string-keyed entry holding a
   function or table is replaced, once the table is "watched". JIT code uses
   it to treat library functions (`math.floor`) as guarded constants.

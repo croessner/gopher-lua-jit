@@ -166,6 +166,14 @@ type LTable struct {
 	// The slots are not stored, but table.insert and table.remove of the
 	// Lua 5.1 profile count them (see table.go).
 	tail int
+	// sparse holds the elements of the array part that lie in the nil
+	// slots behind the stored elements, by 0-based slot index (see
+	// table_sparse.go). sparseKeys caches their indexes in ascending
+	// order (nil: to be rebuilt) and sparseTop the largest one.
+	sparse      map[int]LValue
+	sparseKeys  []int
+	sparseTop   int
+	sparseTopOK bool
 	// akind is the representation of the array part.
 	akind uint8
 	// typedOK allows the array part to use the unboxed representations.

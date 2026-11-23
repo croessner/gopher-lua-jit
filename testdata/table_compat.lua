@@ -53,7 +53,14 @@ local function run(seed)
       rest[#rest + 1] = tostring(k) .. "=" .. tostring(v)
     end
     table.sort(rest)
-    note("len", #t, "maxn", table.maxn(t), "ipairs", table.concat(seq, "|"), "pairs", table.concat(rest, "|"))
+    -- the number keys in the order of the traversal: the array part in
+    -- ascending order, then the other number keys as they were added
+    local order = {}
+    for k in pairs(t) do
+      if type(k) == "number" then order[#order + 1] = tostring(k) end
+    end
+    note("len", #t, "maxn", table.maxn(t), "ipairs", table.concat(seq, "|"), "pairs", table.concat(rest, "|"),
+      "order", table.concat(order, "|"))
   end
 
   for round = 1, 3 do
@@ -66,13 +73,22 @@ local function run(seed)
       elseif kind == 3 then t[i] = i % 2 == 0
       else t[i] = value() end
     end
-    if rnd(3) == 1 then
+    local sorting = rnd(3)
+    if sorting == 1 then
       try(table.sort, t)
       try(table.sort, t, function(a, b) return tostring(a) > tostring(b) end)
       dump(t)
+    elseif sorting == 2 then
+      -- holes, but no nil behind the last element: the array part ends
+      -- at the border, which is where this runtime stops sorting too
+      for i = 1, rnd(4) do t[#t + rnd(300)] = value() end
+      try(table.sort, t, function(a, b) return tostring(a) > tostring(b) end)
+      dump(t)
+      try(table.sort, t)
+      dump(t)
     end
     for step = 1, 25 do
-      local op = rnd(21)
+      local op = rnd(26)
       local n = #t
       if op <= 3 then
         t[n + 1] = value()
@@ -103,7 +119,23 @@ local function run(seed)
       elseif op == 18 then
         try(table.concat, t, ",")
       elseif op == 19 then
-        try(function() return select("#", unpack(t)), unpack(t) end)
+        if n <= 200 then
+          try(function() return select("#", unpack(t)), unpack(t) end)
+        end
+      elseif op == 22 then
+        -- far behind the end
+        t[n + rnd(3000)] = value()
+      elseif op == 23 then
+        t[rnd(5000)] = value()
+      elseif op == 24 then
+        t[n + rnd(2000)] = nil
+      elseif op == 25 then
+        -- next to an element that lies far behind the end
+        local k = table.maxn(t)
+        if rnd(2) == 1 then t[k + 1] = value() else t[k] = nil end
+      elseif op == 26 then
+        try(table.remove, t, rnd(math.max(n, 1)))
+        try(table.insert, t, rnd(math.max(n, 1)), value())
       elseif op == 20 then
         -- a stack: elements are popped by assigning nil and pushed
         -- again in a loop that compiled code can run
@@ -119,6 +151,13 @@ local function run(seed)
         end
         note("sum", sum)
       end
+      note(#t, table.maxn(t))
+    end
+    dump(t)
+    -- taking the table apart from both ends
+    for i = 1, 6 do
+      try(table.remove, t)
+      try(table.remove, t, 1)
       note(#t, table.maxn(t))
     end
     dump(t)

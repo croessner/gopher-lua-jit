@@ -42,6 +42,7 @@ behaviour was already incorrect Lua:
 | More than 255 upvalues in one function | index out of range panic at run time | compile error |
 | Order of `pairs` / `next` / `ForEach` | array part, then hash keys in insertion order (`ForEach`: in random order) | array part, then string keys in insertion order, then other keys in insertion order; `ForEach` uses the same order |
 | `L.NewTable()` | reserved a 32 element array and a hash map for every table | allocates both parts on first use |
+| Memory and time for integer keys far apart (`t[i * 1000] = v`, ids as keys) | every key below about 67 million grew the array part up to the key: 20000 such keys took over a second and a gigabyte | proportional to the number of elements; what Lua code and the Go API observe (`#t`, `table.maxn`, the order of `pairs`, `table.insert`, `table.remove`) is unchanged |
 
 Deliberately kept from GopherLua although reference Lua 5.1 differs: a call
 continued on the next line (`f(1)` newline `(g)(2)`) is one statement,

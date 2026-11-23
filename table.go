@@ -280,9 +280,23 @@ func (tb *LTable) genericize() {
 	tb.akind = arrayKindGeneric
 }
 
-// arraySet stores value at the 0-based index of the array part, growing
-// or converting the array part as needed.
+// arraySet stores value in the slot with the 0-based index of the array
+// part.
 func (tb *LTable) arraySet(index int, value LValue) {
+	n := tb.arrayLen()
+	if index >= n && tb.sparseSet(index, n, value) {
+		return
+	}
+	tb.arrayStore(index, value)
+	if tb.sparse != nil && tb.arrayLen() > n {
+		tb.absorb()
+	}
+}
+
+// arrayStore stores value at the 0-based index of the stored elements,
+// growing or converting them as needed. Behind their end it appends, or
+// fills the slots in between with nil; a nil there is only counted.
+func (tb *LTable) arrayStore(index int, value LValue) {
 	switch tb.akind {
 	case arrayKindInt, arrayKindBool:
 		alen := len(tb.iarr)
@@ -398,6 +412,10 @@ func typedCap(c int) int {
 
 // Len returns length of this LTable without using __len.
 func (tb *LTable) Len() int {
+	if tb.sparse != nil {
+		// (sparse elements lie behind the stored ones and are not nil)
+		return tb.sparseLast() + 1
+	}
 	if tb.akind != arrayKindGeneric {
 		return tb.arrayLen()
 	}
@@ -433,10 +451,20 @@ func (tb *LTable) Insert(i int, value LValue) {
 		return
 	}
 	i -= 1
+	if tb.sparse != nil || (i > tb.arrayLen() && tb.tail > tableSparseGap) {
+		tb.insertSlot(i, value)
+		return
+	}
 	if i > tb.arrayLen() {
 		// between the nil slots behind the stored elements
 		tb.storeTail()
 	}
+	tb.insertStored(i, value)
+}
+
+// insertStored inserts value at the 0-based index i of the stored
+// elements (at most their length).
+func (tb *LTable) insertStored(i int, value LValue) {
 	switch tb.akind {
 	case arrayKindInt, arrayKindBool:
 		if v, ok := wordValue(tb.akind, value); ok {
@@ -479,12 +507,29 @@ func (tb *LTable) Remove(pos int) LValue {
 	if i >= slots {
 		return LNil
 	}
-	if tb.tail > 0 && (i < 0 || i >= larray) {
-		// the last slot, or one of the nil slots behind the stored
-		// elements, goes away
-		tb.tail--
-		return LNil
+	if i < 0 {
+		i = slots - 1 // the last slot
 	}
+	if i >= larray {
+		// one of the slots behind the stored elements goes away; the
+		// slots behind it move down
+		oldval := tb.slotGet(i)
+		if tb.sparse != nil {
+			tb.sparseDelete(i)
+			tb.sparseShift(i+1, -1)
+		}
+		tb.tail--
+		tb.absorb()
+		return oldval
+	}
+	oldval := tb.removeStored(i)
+	tb.sparseShift(larray, -1)
+	return oldval
+}
+
+// removeStored removes the stored element at the 0-based index i.
+func (tb *LTable) removeStored(i int) LValue {
+	larray := tb.arrayLen()
 	oldval := LNil
 	switch tb.akind {
 	case arrayKindInt, arrayKindBool:
@@ -696,7 +741,7 @@ func (tb *LTable) RawGet(key LValue) LValue {
 		if isArrayKey(v) {
 			index := int(v) - 1
 			if index >= tb.arrayLen() {
-				return LNil
+				return tb.slotGet(index)
 			}
 			return tb.arrayGet(index)
 		}
@@ -705,7 +750,7 @@ func (tb *LTable) RawGet(key LValue) LValue {
 		if v >= 1 && v < LInteger(MaxArrayIndex) {
 			index := int(v) - 1
 			if index >= tb.arrayLen() {
-				return LNil
+				return tb.slotGet(index)
 			}
 			return tb.arrayGet(index)
 		}
@@ -725,8 +770,11 @@ func (tb *LTable) RawGet(key LValue) LValue {
 // RawGetInt returns an LValue at position `key` without __index metamethod.
 func (tb *LTable) RawGetInt(key int) LValue {
 	index := int(key) - 1
-	if index < 0 || index >= tb.arrayLen() {
+	if index < 0 {
 		return LNil
+	}
+	if index >= tb.arrayLen() {
+		return tb.slotGet(index)
 	}
 	return tb.arrayGet(index)
 }
@@ -771,6 +819,13 @@ func (tb *LTable) ForEach(cb func(LValue, LValue)) {
 			}
 		}
 	}
+	if tb.sparse != nil {
+		for _, index := range append([]int(nil), tb.sparseSorted()...) {
+			if v, ok := tb.sparse[index]; ok {
+				cb(tb.intKey(index+1), v)
+			}
+		}
+	}
 	for i := 0; i < len(tb.fields); i++ {
 		if f := &tb.fields[i]; !f.removed() {
 			cb(LString(f.key), f.get())
@@ -807,6 +862,11 @@ func (tb *LTable) Next(key LValue) (LValue, LValue) {
 		for ; idx < n; idx++ {
 			if v := tb.arrayGet(idx); v != LNil {
 				return tb.intKey(idx + 1), v
+			}
+		}
+		if tb.sparse != nil {
+			if index, v, ok := tb.sparseNext(idx); ok {
+				return tb.intKey(index + 1), v
 			}
 		}
 		return tb.nextField(0)
@@ -850,6 +910,12 @@ func (tb *LTable) Clone() *LTable {
 	c := &LTable{Metatable: LNil, akind: tb.akind, typedOK: tb.typedOK, intKeys: tb.intKeys, tail: tb.tail}
 	if len(tb.array) > 0 {
 		c.array = append(make([]LValue, 0, len(tb.array)), tb.array...)
+	}
+	if tb.sparse != nil {
+		c.sparse = make(map[int]LValue, len(tb.sparse))
+		for k, v := range tb.sparse {
+			c.sparse[k] = v
+		}
 	}
 	if len(tb.iarr) > 0 {
 		c.iarr = append(make([]int64, 0, len(tb.iarr)), tb.iarr...)

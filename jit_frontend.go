@@ -2257,6 +2257,13 @@ func (fe *jitFrontend) tableOf(slot int) (tp *jit.Value, home int, ok bool) {
 	return fe.tableAt(home), home, true
 }
 
+// guardNoSparse makes the code depend on the table tp keeping all the
+// elements of its array part in the stored part (see table_sparse.go).
+func (fe *jitFrontend) guardNoSparse(tp *jit.Value) {
+	sparse := fe.load(jit.OpLoad64, jit.TInt, tp, int64(offTableSparse))
+	fe.guard(fe.op(jit.OpEq, jit.TInt, sparse, fe.constInt(0)), -1, 0)
+}
+
 // tableAt loads the *LTable at a location that is predicted to hold a
 // table, guarded by a type check.
 func (fe *jitFrontend) tableAt(home int) *jit.Value {
@@ -2438,6 +2445,8 @@ func (fe *jitFrontend) setTable(a, b, c int) bool {
 	fe.guard(fe.op(jit.OpLt, jit.TInt, newLen, limit), -1, 0)
 	mt := fe.load(jit.OpLoad64, jit.TInt, tp, int64(offTableMetatable))
 	fe.guard(fe.op(jit.OpEq, jit.TInt, mt, fe.constInt(int64(itabNil))), -1, 0)
+	// (an append may have to move sparse elements behind the array)
+	fe.guardNoSparse(tp)
 	fe.store(jit.MemArray, storeOp, addr, 0, val)
 	fe.store(jit.MemArrayLen, jit.OpStore64, tp, off+sliceOffLen, newLen)
 	// the element takes the first of the nil slots that the table
@@ -2725,6 +2734,8 @@ func (fe *jitFrontend) length(a, b int) bool {
 	case arrayKindGeneric:
 		off = int64(offTableArray)
 	}
+	// (the border of a table with sparse elements lies behind them)
+	fe.guardNoSparse(tp)
 	n := fe.loadMem(jit.MemArrayLen, jit.OpLoad64, jit.TInt, tp, off+sliceOffLen)
 	if akind == arrayKindGeneric {
 		// the length is the number of elements unless the array part
