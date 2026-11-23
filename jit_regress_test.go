@@ -1206,6 +1206,19 @@ var jitRefPrograms = map[string]string{
 			while node do s = s + node.v node = node.next end
 		end
 		return s`,
+	"boxed loop variables": `
+		local recs = {}
+		for i = 1, 40 do recs[i] = {n = (i * 7) % 23, name = "r" .. i} end
+		local total, names = 0, {}
+		for round = 1, 30 do
+			local best = recs[1]
+			for _, r in ipairs(recs) do if r.n > best.n then best = r end end
+			local cur, steps = recs[round], 0
+			while cur and steps < 5 do cur = recs[cur.n + 1] steps = steps + 1 end
+			total = total + best.n + steps + (cur and cur.n or 0)
+			if round % 10 == 0 then names[#names + 1] = best.name end
+		end
+		return total, table.concat(names, ",")`,
 	"array with holes and nil elements": `
 		local t = {}
 		for i = 1, 30 do t[i] = {v = i} end

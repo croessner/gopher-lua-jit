@@ -346,23 +346,27 @@ func (ls *LState) jitApply(u *jitUnit, entries []jit.ExitEntry, frame []uint64, 
 		return
 	}
 	reg := ls.reg
-	if top := base + u.nslots; reg.top < top {
-		reg.SetTop(top)
-	}
-	arr := reg.array
-	// Boxed copies read their source before anything is overwritten:
-	// other registers, or the place in a table native code loaded the
-	// value from (nothing has changed there since).
+	// Boxed copies read their source before anything is overwritten or
+	// moved: other registers, or the place native code loaded the value
+	// from (nothing has changed there since).
 	var boxedBuf [8]LValue
 	boxed := boxedBuf[:0]
 	for i := range entries {
 		switch e := &entries[i]; e.Tag {
 		case tagAlias:
-			boxed = append(boxed, arr[base+int(e.Const)])
+			boxed = append(boxed, reg.array[base+int(e.Const)])
 		case tagRef:
-			boxed = append(boxed, loadBoxed(e, frame))
+			if e.Loc.Kind == jit.LocRegBase {
+				boxed = append(boxed, reg.array[base])
+			} else {
+				boxed = append(boxed, loadBoxed(e, frame))
+			}
 		}
 	}
+	if top := base + u.nslots; reg.top < top {
+		reg.SetTop(top)
+	}
+	arr := reg.array
 	bi := 0
 	for i := range entries {
 		e := &entries[i]

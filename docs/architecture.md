@@ -157,7 +157,10 @@ Three kinds of speculation go beyond registers (`jit_frontend.go`,
   value inside the table; further accesses load the type and data words
   from there. The address is valid until Go code runs again, so every
   callout and exit first copies the referenced values into their
-  registers, reading them before anything is written.
+  registers, reading them before anything is written. At the header of a
+  loop that replaces a boxed variable (`node = node.next`) the variable
+  is a reference whose address is a phi over the places the value can
+  be in, including the variable's own home slot.
 - **Upvalues.** A closed upvalue is read from its cell; numbers are
   unboxed, functions and tables become constants guarded by identity. An
   open upvalue of an inlined callee that refers to a register of the

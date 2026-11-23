@@ -346,6 +346,7 @@ func (fe *jitFrontend) translate() (err error) {
 			fe.unbox(slot, skInt)
 		case vkFloat:
 			fe.unbox(slot, skFloat)
+
 		}
 	}
 	fe.speculateLoopStep()
@@ -789,6 +790,22 @@ func (fe *jitFrontend) conform(from *jit.Block, tb *feBlock, st []slotState) {
 			if have.kind != skNil {
 				fe.demote(tb.pc, slot)
 			}
+		case skRef:
+			// any boxed value that is in memory can be referred to
+			switch have.kind {
+			case skRef:
+			case skHome:
+				*have = fe.refHome(from, slot)
+			case skAlias:
+				*have = fe.refHome(from, int(have.src))
+			default:
+				fe.demote(tb.pc, slot)
+				continue
+			}
+			if !(want.val.Op == jit.OpPhi && want.val.Block == tb.ir) && have.val != want.val {
+				fe.needPhi[demoteKey{tb.pc, slot}] = true
+				fe.restart = true
+			}
 		default:
 			if have.stale() {
 				needFlush = true
@@ -839,6 +856,74 @@ func (fe *jitFrontend) unboxLoopCarried(tb *feBlock, live *regSet) {
 	fe.cur, fe.st, fe.pc = cur, st, pc
 }
 
+// joinBoxed handles a register that holds a boxed value in memory on all
+// edges into the block tb (in its home slot, in another one, or inside a
+// table). If the edges disagree, or the block is the header of a loop
+// that replaces the value (node = node.next), the register becomes a
+// reference whose address is a phi over the places the value is in. It
+// reports whether it set the state of the slot.
+func (fe *jitFrontend) joinBoxed(tb *feBlock, slot int, pending bool, st []slotState) bool {
+	if fe.info.escaped.has(slot) {
+		return false
+	}
+	first := &tb.incoming[0].st[slot]
+	same, hasRef := true, false
+	for i := range tb.incoming {
+		s := &tb.incoming[i].st[slot]
+		switch s.kind {
+		case skRef:
+			hasRef = true
+		case skHome, skAlias:
+		default:
+			return false
+		}
+		same = same && *s == *first
+	}
+	replaced := pending && (fe.needPhi[demoteKey{tb.pc, slot}] || fe.writtenInLoop(tb.pc).has(slot))
+	switch {
+	case same && !replaced:
+		// one place on all edges, and nothing changes that
+		if first.kind != skRef {
+			return false
+		}
+		st[slot] = *first
+		return true
+	case !hasRef && (!replaced || slot >= len(fe.frame) || fe.frame[slot] == nil):
+		return false
+	case !hasRef:
+		// only worth it for values that are not numbers: those are
+		// unboxed on entry instead
+		if k := fe.predictKind(slot); k == vkInt || k == vkFloat {
+			return false
+		}
+	}
+	phi := fe.f.NewPhi(tb.ir, jit.TInt)
+	src := int32(slot)
+	for i := range tb.incoming {
+		in := &tb.incoming[i]
+		s := &in.st[slot]
+		switch s.kind {
+		case skRef:
+			phi.Args = append(phi.Args, s.val)
+			src = s.src
+		case skAlias:
+			phi.Args = append(phi.Args, fe.refHome(in.from, int(s.src)).val)
+		default:
+			phi.Args = append(phi.Args, fe.refHome(in.from, slot).val)
+		}
+	}
+	st[slot] = slotState{kind: skRef, val: phi, src: src}
+	return true
+}
+
+// refHome returns the state of a register that refers to the boxed value
+// in the home slot of the register slot (the address is computed in the
+// block blk).
+func (fe *jitFrontend) refHome(blk *jit.Block, slot int) slotState {
+	addr := fe.f.NewValue(blk, jit.OpAdd, jit.TInt, 0, fe.f.RegBase(), fe.f.ConstInt(blk, int64(slot)*lvalueSize))
+	return slotState{kind: skRef, val: addr, src: int32(slot)}
+}
+
 // demote forces a register to stay boxed at the entry of a block and
 // requests a new translation attempt.
 func (fe *jitFrontend) demote(pc, slot int) {
@@ -870,6 +955,9 @@ func (fe *jitFrontend) startBlock(tb *feBlock) bool {
 	}
 	for slot := 0; slot < fe.nslots; slot++ {
 		if !live.has(slot) || fe.demoted[demoteKey{tb.pc, slot}] {
+			continue
+		}
+		if fe.joinBoxed(tb, slot, pending, st) {
 			continue
 		}
 		first := &tb.incoming[0].st[slot]

@@ -648,9 +648,12 @@ func (e *emitter) emit(res AllocResult) (*Code, error) {
 		}
 		for _, s := range x.Snap {
 			entry := ExitEntry{Slot: s.Slot, Tag: s.Tag, Loc: s.Val.loc}
-			if s.Val.IsConst() {
+			switch {
+			case s.Val.IsConst():
 				entry.Loc = Loc{Kind: LocConst}
 				entry.Const = s.Val.Aux
+			case s.Val.Op == OpRegBase:
+				entry.Loc = Loc{Kind: LocRegBase}
 			}
 			info.Entries = append(info.Entries, entry)
 		}

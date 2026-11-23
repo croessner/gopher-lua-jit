@@ -404,7 +404,7 @@ func (g *progGen) stmt() {
 	switch k := g.rng.Intn(10); {
 	case k < 1:
 		// fields, boolean array elements, helper results, upvalues
-		switch g.rng.Intn(13) {
+		switch g.rng.Intn(15) {
 		case 0, 1, 2:
 			fmt.Fprintf(&g.sb, "%s%s = %s\n", ind, []string{"p.u", "p.v", "p.w", "q.u"}[g.rng.Intn(4)], g.expr(2))
 		case 3, 4:
@@ -422,6 +422,13 @@ func (g *progGen) stmt() {
 			v := g.v()
 			fmt.Fprintf(&g.sb, "%sfor _, e in pairs(%s) do if type(e) == 'number' then %s = %s + e end end\n",
 				ind, []string{"p", "q", "flags"}[g.rng.Intn(3)], v, v)
+		case 12:
+			// a boxed variable that the loop replaces
+			v := g.v()
+			fmt.Fprintf(&g.sb, "%sdo local node = list while node do %s = %s + node.v node = node.next end end\n", ind, v, v)
+		case 13:
+			v := g.v()
+			fmt.Fprintf(&g.sb, "%sdo local best = recs[1] for _, r in ipairs(recs) do if r.n > best.n then best = r end end %s = %s + best.n end\n", ind, v, v)
 		case 11:
 			fmt.Fprintf(&g.sb, "%sif i %% 41 == 0 then %s end\n", ind, []string{
 				"Cls.get = function(self) return self.v end", "obj.extra = i", "obj.get = function() return 3 end",
@@ -485,6 +492,7 @@ func (g *progGen) generate() string {
 	g.sb.WriteString("local function h5(m, n) if m > n then return m end return n end\n")
 	g.sb.WriteString("local function h6(m) local r = m if m < 0 then r = -m end return r + (m > k1 and 1 or 0) end\n")
 	g.sb.WriteString("local names = {'delta', 'alpha', 'gamma', 'beta'}\n")
+	g.sb.WriteString("local list\nfor n = 1, 6 do list = {v = n * 0.5, next = list} end\n")
 	g.sb.WriteString("local recs = {{n = 1, tag = 'a'}, {n = 2.5, tag = 'bb'}, {n = 3, tag = 'ccc'}}\n")
 	g.sb.WriteString("local function h7(m, n) if m < n then return 1 end return 0 end\n")
 	g.sb.WriteString("local Cls = {}\nCls.__index = Cls\n")
