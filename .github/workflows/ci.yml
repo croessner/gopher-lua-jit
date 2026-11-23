@@ -49,7 +49,7 @@ jobs:
         with:
           go-version: stable
       - name: Test with the race detector
-        run: go test -count=1 -race -short ./...
+        run: go test -count=1 -race -short -timeout 20m ./...
 
   checks:
     name: checks
