@@ -74,6 +74,16 @@ on first use. Compared with GopherLua:
   positions (`fieldIndex`). Removed entries keep their position with a nil
   value, so positions are stable. This replaces two Go maps and one boxed
   key per entry and is what makes creating many small tables cheap.
+- **What every table pays for is kept small.** An entry is a key and a
+  value (32 bytes). The unboxed numbers of the entries (`nums`, see number
+  fields below) live in a block of their own that a table only gets in a
+  state with the JIT on, and there only when one of its string-keyed
+  entries holds a number. The parts most tables do
+  not have are reached through one pointer each: the entries with other
+  keys than strings and array indexes together with the keys kept for
+  repeated traversals (`extra`), and the sparse elements of the array part
+  (`sparse`). The table header takes 184 bytes; `TestTableLayout` guards
+  that it stays within the 192 byte size class.
 
 
 - **Unboxed array parts.** When enabled for a table (it is for states with
@@ -187,14 +197,19 @@ code).
 Several kinds of speculation go beyond registers (`jit_frontend.go`,
 `jit_inline.go`):
 
-- **Number fields.** A string-keyed table entry stores numbers unboxed
-  next to a cached boxed value (`tableField`). `p.x` compiles to a guarded
-  load from the entry at the position the field had when the code was
+- **Number fields.** The number of a string-keyed table entry is stored
+  unboxed (`fieldNum`, in the `nums` block of the table, at the position
+  of the entry) next to a cached boxed value in the entry. `p.x` compiles
+  to a guarded load from the position the field had when the code was
   compiled: the entry must exist, carry that key (compared by the address
   of its bytes; string constants are interned so that every function uses
-  the same copy) and hold a number. A store writes the number and marks
-  the cached box stale; the interpreter rebuilds it on its next read.
-  Sites that see several table layouts are left to the interpreter.
+  the same copy), and the table must have unboxed numbers of which this
+  one is a number. A store writes the number and marks the cached box
+  stale; the interpreter rebuilds it on its next read. In such a table
+  the value of an entry is a number exactly if the entry is a number
+  entry, so a field that is read as a table, string or function only
+  needs the type word of its value checked. Sites that see several table
+  layouts are left to the interpreter.
 - **References into tables.** A table, string or function read from an
   array element or a field is not copied into the register (that would
   be a pointer write). The register state records the address of the

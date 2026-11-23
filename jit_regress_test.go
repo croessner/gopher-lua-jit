@@ -421,6 +421,81 @@ var jitFieldPrograms = map[string]string{
 		return src
 	})(),
 	"negative zero and nan fields": `local p = {z = 0.0, n = 0.0} for i = 1, 100 do p.z = p.z * -1.0 p.n = (p.n + 1) * (0/0) end return 1 / p.z, p.n ~= p.n`,
+	// A site that reads a number field meets tables that hold no number
+	// at all: such a table has no unboxed numbers.
+	"number site meets a table without numbers": `
+		local objs = {}
+		for i = 1, 300 do objs[i] = {x = i, name = "n"} end
+		for i = 120, 300, 7 do objs[i] = {x = "s" .. i, name = "n"} end
+		local sum, strs = 0, 0
+		for round = 1, 3 do
+			for i = 1, 300 do
+				local v = objs[i].x
+				if type(v) == "number" then sum = sum + v else strs = strs + #v end
+			end
+		end
+		return sum, strs`,
+	"number store meets a table without numbers": `
+		local objs = {}
+		for i = 1, 300 do objs[i] = {x = i} end
+		for i = 150, 300, 11 do objs[i] = {x = "7"} end
+		for round = 1, 3 do
+			for i = 1, 300 do
+				local o = objs[i]
+				o.x = o.x + 1
+			end
+		end
+		local sum = 0
+		for i = 1, 300 do sum = sum + objs[i].x end
+		return sum`,
+	// A site that reads a field as a string meets a number field whose
+	// number native code has just written: the boxed value is out of
+	// date and must not be used.
+	"boxed site meets a number written natively": `
+		local objs = {}
+		for i = 1, 400 do
+			if i % 2 == 0 then objs[i] = {tag = true, v = i * 1.0} else objs[i] = {tag = false, v = "s" .. i} end
+		end
+		local sum, strs = 0, 0
+		for round = 1, 4 do
+			for i = 1, 400 do
+				local o = objs[i]
+				if o.tag then o.v = o.v + 1 end
+				local x = o.v
+				if type(x) == "number" then sum = sum + x else strs = strs + #x end
+			end
+		end
+		return sum, strs`,
+	"boxed site meets an integer written natively": `
+		local objs = {}
+		for i = 1, 400 do
+			if i % 3 ~= 0 then objs[i] = {tag = false, v = "s"} else objs[i] = {tag = true, v = i} end
+		end
+		local sum, strs = 0, 0
+		for round = 1, 4 do
+			for i = 1, 400 do
+				local o = objs[i]
+				if o.tag then o.v = o.v + 2 end
+				local x = o.v
+				if x == "s" then strs = strs + 1 else sum = sum + x end
+			end
+		end
+		return sum, strs`,
+	"copied field after a native store": `
+		local objs, out = {}, {}
+		for i = 1, 300 do
+			if i > 40 and i % 2 == 0 then objs[i] = {tag = true, v = i * 0.5} else objs[i] = {tag = false, v = "s"} end
+		end
+		for round = 1, 3 do
+			for i = 1, 300 do
+				local o = objs[i]
+				if o.tag then o.v = o.v * 2 end
+				out[i] = o.v
+			end
+		end
+		local sum = 0
+		for i = 1, 300 do if type(out[i]) == "number" then sum = sum + out[i] end end
+		return sum`,
 }
 
 func TestJITFieldPrograms(t *testing.T) {

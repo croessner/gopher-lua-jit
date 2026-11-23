@@ -156,15 +156,21 @@ func TestTableRawSetInt(t *testing.T) {
 
 func TestTableRawSetH(t *testing.T) {
 	tbl := newLTable(0, 0)
+	inDict := func(key LValue) bool {
+		if tbl.extra == nil {
+			return false
+		}
+		_, found := tbl.extra.dict[key]
+		return found
+	}
 	tbl.RawSetH(LString("key"), LTrue)
 	tbl.RawSetH(LString("key"), LNil)
-	_, found := tbl.dict[LString("key")]
-	errorIfNotEqual(t, false, found)
+	errorIfNotEqual(t, false, inDict(LString("key")))
 
 	tbl.RawSetH(LTrue, LTrue)
+	errorIfNotEqual(t, true, inDict(LTrue))
 	tbl.RawSetH(LTrue, LNil)
-	_, foundb := tbl.dict[LTrue]
-	errorIfNotEqual(t, false, foundb)
+	errorIfNotEqual(t, false, inDict(LTrue))
 }
 
 func TestTableRawGetH(t *testing.T) {
