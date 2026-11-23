@@ -355,7 +355,19 @@ func (g *progGen) expr(depth int) string {
 	if g.lua55 {
 		ops = append(ops, "//", "&", "|", "~", "<<", ">>")
 	}
-	switch g.rng.Intn(24) {
+	switch g.rng.Intn(30) {
+	case 14:
+		return []string{"math.max", "math.min", "mx", "mn"}[g.rng.Intn(4)] + "(" + l + ", " + r + ")"
+	case 15:
+		return "math.max(" + l + ", " + r + ", t[i % 8 + 1])"
+	case 16:
+		return "fl(" + l + ")"
+	case 17:
+		return "(type(" + []string{l, "p", "names[i % 4 + 1]", "t[i % 20 + 1]"}[g.rng.Intn(4)] + ") == 'number' and " + l + " or " + r + ")"
+	case 18:
+		return "tonumber(" + l + ")"
+	case 19:
+		return "t[mx(1, mn(fl(" + l + "), #t))]"
 	case 0:
 		return "math.floor(" + l + ")"
 	case 1:
@@ -485,6 +497,7 @@ func (g *progGen) generate() string {
 	g.sb.WriteString("local p, q = {u = 1, v = 2.5, w = -3}, {v = 4, extra = 's', u = 9}\n")
 	g.sb.WriteString("local flags = {}\nfor i = 1, 16 do flags[i] = i % 3 == 0 end\n")
 	g.sb.WriteString("local k1, k2 = 3, 0.5\n")
+	g.sb.WriteString("local fl, mx, mn = math.floor, math.max, math.min\n")
 	g.sb.WriteString("local function h1(m, n) return m * k1 + n end\n")
 	g.sb.WriteString("local function h2(m) return h1(m, k2) - m end\n")
 	g.sb.WriteString("local function h3(o, m) o.u = o.u + m return o.v end\n")
@@ -504,6 +517,7 @@ func (g *progGen) generate() string {
 		// the loop reaches the tables through local variables instead
 		// of upvalues
 		g.sb.WriteString("local t, p, q, flags, names, recs, obj, list = t, p, q, flags, names, recs, obj, list\n")
+		g.sb.WriteString("local fl, mx, mn = fl, mx, mn\n")
 	}
 	fmt.Fprintf(&g.sb, "for i = 1, %d do\n", 30+g.rng.Intn(150))
 	g.depth = 1

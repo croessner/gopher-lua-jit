@@ -104,8 +104,14 @@ Compiled natively inside hot loops (both profiles):
   without metatable advances natively, every other iterator (`pairs`,
   custom iterators) is called through the interpreter once per iteration;
 - truth tests and comparisons with `nil` on arbitrary values;
-- `math.sqrt`, `math.floor`, `math.ceil`, `math.abs` when reached through
-  the unmodified `math` table.
+- `math.sqrt`, `math.floor`, `math.ceil`, `math.abs`, `math.max` and
+  `math.min` (up to four numbers of one kind), `type` and `tonumber` of a
+  number, whether they are called through the unmodified library tables
+  or through a local variable or upvalue (`local floor = math.floor`).
+  The result of `type` is a constant for the compiler, so
+  `type(v) == "number"` costs a type check of `v` and no string
+  comparison; comparisons of two known strings are decided when the loop
+  is compiled.
 
 Executed by the interpreter on behalf of native code (a *callout*; correct
 but with a fixed overhead of a few dozen nanoseconds each):

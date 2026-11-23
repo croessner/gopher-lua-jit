@@ -127,8 +127,10 @@ to the interpreter.
 3. Speculation is guarded: unboxing a register checks its dynamic type;
    table accesses check the table type, the array representation and the
    bounds; library functions are assumed unchanged as long as the version
-   counters of the tables they were found in are unchanged; the step of the
-   entered `for` loop is assumed constant.
+   counters of the tables they were found in are unchanged, or, when they
+   are called through a register, as long as the register holds the same
+   function (`jit_intrinsic.go`); the step of the entered `for` loop is
+   assumed constant.
 4. Joins use phis for registers that have the same unboxed kind on all
    incoming edges. Other registers are written back on the edges and stay
    boxed. Translation is repeated until these decisions are stable.

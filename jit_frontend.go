@@ -2,7 +2,6 @@ package lua
 
 import (
 	"fmt"
-	"reflect"
 	"unsafe"
 
 	"github.com/yuin/gopher-lua/internal/jit"
@@ -1629,98 +1628,6 @@ func (fe *jitFrontend) constField(a, b, c int) bool {
 	return true
 }
 
-// Intrinsics: library functions with a native translation.
-const (
-	intrNone = iota
-	intrSqrt
-	intrFloor
-	intrCeil
-	intrAbs
-)
-
-// intrinsicOf identifies library functions that have a native form.
-func intrinsicOf(fn *LFunction) int {
-	if fn == nil || !fn.IsG || fn.GFunction == nil {
-		return intrNone
-	}
-	switch reflect.ValueOf(fn.GFunction).Pointer() {
-	case reflect.ValueOf(LGFunction(mathSqrt)).Pointer():
-		return intrSqrt
-	case reflect.ValueOf(LGFunction(mathFloor)).Pointer(), reflect.ValueOf(LGFunction(math55Floor)).Pointer():
-		return intrFloor
-	case reflect.ValueOf(LGFunction(mathCeil)).Pointer(), reflect.ValueOf(LGFunction(math55Ceil)).Pointer():
-		return intrCeil
-	case reflect.ValueOf(LGFunction(mathAbs)).Pointer(), reflect.ValueOf(LGFunction(math55Abs)).Pointer():
-		return intrAbs
-	}
-	return intrNone
-}
-
-// floatToIntExact converts a float value that is known to be integral
-// to an integer, deoptimizing if it does not fit.
-func (fe *jitFrontend) floatToIntExact(f *jit.Value) *jit.Value {
-	fe.guard(fe.op(jit.OpFLt, jit.TInt, f, fe.f.ConstFloat(fe.cur, 9223372036854775808.0)), -1, 0)
-	fe.guard(fe.op(jit.OpFLe, jit.TInt, fe.f.ConstFloat(fe.cur, -9223372036854775808.0), f), -1, 0)
-	return fe.op(jit.OpFloatToInt, jit.TInt, f)
-}
-
-// intrinsicCall translates a call of a known library function with one
-// numeric argument and one result into native code.
-func (fe *jitFrontend) intrinsicCall(a, b, c int) bool {
-	s := &fe.st[a]
-	if s.kind != skConst || b != 2 || (c != 2 && c != 0) {
-		return false
-	}
-	fn, _ := fe.consts[s.src].(*LFunction)
-	kind := intrinsicOf(fn)
-	if kind == intrNone {
-		return false
-	}
-	x, xk, ok := fe.num(a + 1)
-	if !ok {
-		return false
-	}
-	lang55 := fe.L.lang55
-	switch kind {
-	case intrSqrt:
-		fe.set(a, skFloat, fe.op(jit.OpFSqrt, jit.TFloat, fe.toFloat(x, xk)))
-	case intrFloor, intrCeil:
-		o := jit.OpFFloor
-		if kind == intrCeil {
-			o = jit.OpFCeil
-		}
-		switch {
-		case xk == skInt && lang55:
-			fe.set(a, skInt, x)
-		case lang55:
-			fe.set(a, skInt, fe.floatToIntExact(fe.op(o, jit.TFloat, x)))
-		default:
-			fx := fe.toFloat(x, xk)
-			r := fe.op(o, jit.TFloat, fx)
-			if kind == intrFloor && xk == skFloat {
-				fe.floorTwin(r, fx)
-			}
-			fe.set(a, skFloat, r)
-		}
-	case intrAbs:
-		if xk == skInt && lang55 {
-			mask := fe.op(jit.OpSar, jit.TInt, x, fe.constInt(63))
-			fe.set(a, skInt, fe.op(jit.OpSub, jit.TInt, fe.op(jit.OpXor, jit.TInt, x, mask), mask))
-		} else {
-			fe.set(a, skFloat, fe.op(jit.OpFAbs, jit.TFloat, fe.toFloat(x, xk)))
-		}
-	}
-	// the argument registers are dead after a call
-	for r := a + 1; r < a+b && r < fe.nslots; r++ {
-		fe.st[r] = slotState{}
-	}
-	if c == 0 {
-		// all results were requested: there is exactly one
-		fe.openTop = a + 1
-	}
-	return true
-}
-
 // move translates R(a) := R(b).
 func (fe *jitFrontend) move(a, b int) {
 	s := fe.st[b]
@@ -1943,6 +1850,14 @@ func (fe *jitFrontend) compare(op, a, b, c int) {
 // compareValue returns the boolean value of a comparison if it can be
 // computed natively.
 func (fe *jitFrontend) compareValue(op, b, c int) *jit.Value {
+	if op == OP_EQ {
+		if eq, known := fe.constantEquality(b, c); known {
+			if eq {
+				return fe.constInt(1)
+			}
+			return fe.constInt(0)
+		}
+	}
 	if op == OP_EQ && b&opBitRk == 0 && c&opBitRk == 0 {
 		// comparisons against nil and between booleans
 		sb, sc := &fe.st[b], &fe.st[c]

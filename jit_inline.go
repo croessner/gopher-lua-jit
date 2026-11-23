@@ -178,11 +178,11 @@ func (fe *jitFrontend) joinInline(edges []feEdge, needed func(slot int) bool) bo
 	return true
 }
 
-// calleeAt returns the Lua function in register a if the code can treat
+// functionAt returns the function in register a if the code can treat
 // it as a constant: it is one already (a global or upvalue function) or
-// the register holds it boxed. home is the slot whose identity has to be
-// guarded in the second case, else -1.
-func (fe *jitFrontend) calleeAt(a int) (fn *LFunction, home int) {
+// the register holds it boxed. home is the location whose identity has
+// to be guarded in the second case, else -1.
+func (fe *jitFrontend) functionAt(a int) (fn *LFunction, home int) {
 	home = -1
 	if s := &fe.st[a]; s.kind == skConst {
 		fn, _ = fe.consts[s.src].(*LFunction)
@@ -190,6 +190,15 @@ func (fe *jitFrontend) calleeAt(a int) (fn *LFunction, home int) {
 		fn, _ = fe.peek(h).(*LFunction)
 		home = h
 	}
+	if fn == nil {
+		return nil, -1
+	}
+	return fn, home
+}
+
+// calleeAt is functionAt for Lua functions.
+func (fe *jitFrontend) calleeAt(a int) (fn *LFunction, home int) {
+	fn, home = fe.functionAt(a)
 	if fn == nil || fn.IsG || fn.Proto == nil {
 		return nil, -1
 	}
