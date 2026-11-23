@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -891,6 +892,17 @@ var jitBranchyInlinePrograms = map[string]string{
 		local t = {}
 		local ok, msg = pcall(function() local s = 0 for i = 1, 300 do s = s + f(i, t) end return s end)
 		return ok, (tostring(msg):gsub("^.-:%d+: ", ""))`,
+	"comparison of strings and tables in the callee": `
+		local function lt(x, y) return x < y end
+		local function same(x, y) if x == y then return 1 end return 0 end
+		local names = {"Jan", "Feb", "Mar", "Apr", "May"}
+		local objs = {{}, {}}
+		local n = 0
+		for i = 1, 300 do
+			if lt(names[i % 5 + 1], names[(i + 2) % 5 + 1]) then n = n + 1 end
+			n = n + same(objs[i % 2 + 1], objs[1]) + same(names[1], "Jan")
+		end
+		return n`,
 	"field dependent branch": `
 		local function cost(item) if item.heavy > 0 then return item.w * 2 else return item.w end end
 		local a, b = {w = 3, heavy = 1}, {w = 5, heavy = 0}
@@ -1148,4 +1160,179 @@ func TestJITMethodPrograms(t *testing.T) {
 			}
 		}
 	}
+}
+
+// jitRefPrograms exercise boxed values (tables, strings, functions) that
+// compiled code reads from arrays and fields without copying them.
+var jitRefPrograms = map[string]string{
+	"array of objects": `
+		local objs = {}
+		for i = 1, 50 do objs[i] = {v = i, w = i * 0.5} end
+		local s = 0
+		for round = 1, 20 do
+			for i = 1, #objs do local o = objs[i] s = s + o.v * o.w o.v = o.v + 1 end
+		end
+		return s, objs[50].v`,
+	"ipairs over objects": `
+		local objs = {}
+		for i = 1, 50 do objs[i] = {v = i, tag = "t" .. i} end
+		local s, n = 0, 0
+		for round = 1, 20 do
+			for i, o in ipairs(objs) do s = s + o.v + i n = n + #o.tag end
+		end
+		return s, n`,
+	"nested fields": `
+		local cfg = {limits = {max = 10, min = 2}, name = "cfg", inner = {deep = {x = 3}}}
+		local s = 0
+		for i = 1, 300 do
+			s = s + cfg.limits.max - cfg.limits.min + cfg.inner.deep.x + #cfg.name
+			cfg.inner.deep.x = cfg.inner.deep.x + 1
+		end
+		return s, cfg.inner.deep.x`,
+	"matrix": `
+		local m = {}
+		for i = 1, 20 do m[i] = {} for j = 1, 20 do m[i][j] = i * j end end
+		local s = 0
+		for round = 1, 10 do
+			for i = 1, 20 do for j = 1, 20 do s = s + m[i][j] m[i][j] = m[i][j] + 1 end end
+		end
+		return s, m[20][20]`,
+	"linked list": `
+		local head
+		for i = 1, 100 do head = {v = i, next = head} end
+		local s = 0
+		for round = 1, 20 do
+			local node = head
+			while node do s = s + node.v node = node.next end
+		end
+		return s`,
+	"array with holes and nil elements": `
+		local t = {}
+		for i = 1, 30 do t[i] = {v = i} end
+		t[7], t[19] = nil, false
+		local s, holes = 0, 0
+		for round = 1, 20 do
+			for i = 1, 30 do local o = t[i] if o then s = s + o.v else holes = holes + 1 end end
+			for _, o in ipairs(t) do s = s + o.v end
+		end
+		return s, holes`,
+	"elements replaced while iterating": `
+		local objs = {}
+		for i = 1, 40 do objs[i] = {v = i} end
+		local s = 0
+		for round = 1, 20 do
+			for i = 1, #objs do
+				local o = objs[i]
+				if i % 7 == 0 then objs[i] = {v = o.v + round} end
+				if i % 11 == 0 then objs[i + 1] = o end
+				s = s + o.v + objs[i].v
+			end
+		end
+		return s`,
+	"strings from arrays and fields": `
+		local names = {"alpha", "beta", "gamma", "delta"}
+		local rec = {name = "rec", kind = "k"}
+		local n, joined = 0, ""
+		for i = 1, 200 do
+			local s = names[i % 4 + 1]
+			n = n + #s + #rec.name
+			if s == "beta" then n = n + 1 end
+			if i % 50 == 0 then joined = joined .. s .. rec.kind end
+		end
+		return n, joined`,
+	"functions from arrays and fields": `
+		local ops = {function(x) return x + 1 end, function(x) return x * 2 end, function(x) return x - 3 end}
+		local lib = {inc = function(x) return x + 1 end}
+		local s = 0
+		for i = 1, 300 do s = ops[i % 3 + 1](s) % 1000 + lib.inc(i) end
+		return s`,
+	"objects with methods in an array": `
+		local C = {} C.__index = C
+		function C:area() return self.w * self.h end
+		local shapes = {}
+		for i = 1, 30 do shapes[i] = setmetatable({w = i, h = 2}, C) end
+		local s = 0
+		for round = 1, 20 do for _, sh in ipairs(shapes) do s = s + sh:area() end end
+		return s`,
+	"array with a metatable": `
+		local t = setmetatable({{v = 1}, {v = 2}}, {__index = function(_, i) return {v = i * 100} end})
+		local s = 0
+		for i = 1, 200 do s = s + t[i % 4 + 1].v end
+		return s`,
+	"field holds different kinds": `
+		local o = {p = {v = 1}}
+		local s = 0
+		for i = 1, 300 do
+			local p = o.p
+			if type(p) == "table" then s = s + p.v elseif type(p) == "number" then s = s + p else s = s + #p end
+			if i == 100 then o.p = 5 elseif i == 200 then o.p = "text" elseif i == 250 then o.p = {v = 9} end
+		end
+		return s`,
+	"reference kept across a call": `
+		local objs = {{v = 1}, {v = 2}, {v = 3}}
+		local function swap() objs[1], objs[2] = objs[2], objs[1] end
+		local s = 0
+		for i = 1, 300 do
+			local o = objs[1]
+			if i % 10 == 0 then swap() end
+			s = s + o.v + objs[1].v
+		end
+		return s`,
+}
+
+func TestJITRefPrograms(t *testing.T) {
+	skipWithoutJIT(t)
+	for name, src := range jitRefPrograms {
+		name, src := name, src
+		t.Run(name, func(t *testing.T) {
+			checkJITMatchesInterpreter(t, name, src)
+		})
+	}
+	for _, name := range []string{"array of objects", "ipairs over objects", "nested fields", "matrix", "objects with methods in an array"} {
+		for _, version := range []LanguageVersion{Lua51, Lua55} {
+			src := strings.Replace(strings.Replace(jitRefPrograms[name], "round = 1, 20", "round = 1, 400", -1), "i = 1, 300", "i = 1, 20000", -1)
+			_, st := runChunk(jitTestOptions(version, 5), src)
+			// (a few callouts per round set up the loops: the call of
+			// ipairs, the marker of the closing value)
+			if st.Compiled == 0 || st.Callouts > 2000 || st.Blacklisted != 0 {
+				t.Errorf("%s (%v): access to boxed values is not native: %s", name, version, st)
+			}
+		}
+	}
+}
+
+// TestJITRefsUnderGC runs code that keeps references into tables while
+// the garbage collector works as hard as it can.
+func TestJITRefsUnderGC(t *testing.T) {
+	skipWithoutJIT(t)
+	defer debug.SetGCPercent(debug.SetGCPercent(1))
+	src := `
+		local objs = {}
+		for i = 1, 200 do objs[i] = {v = i, name = "n" .. i, child = {w = i}} end
+		local s = 0
+		for round = 1, 300 do
+			for i, o in ipairs(objs) do
+				s = s + o.v + o.child.w + #o.name
+				if (i + round) % 97 == 0 then objs[i] = {v = i, name = "m" .. round, child = {w = round}} end
+			end
+		end
+		return s`
+	want, _ := runChunk(Options{}, src)
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				runtime.GC()
+			}
+		}
+	}()
+	for i := 0; i < 5; i++ {
+		if got, _ := runChunk(jitTestOptions(Lua51, 3), src); got != want {
+			t.Fatalf("got %s, want %s", got, want)
+		}
+	}
+	close(done)
 }

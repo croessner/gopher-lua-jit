@@ -186,8 +186,8 @@ func (fe *jitFrontend) calleeAt(a int) (fn *LFunction, home int) {
 	home = -1
 	if s := &fe.st[a]; s.kind == skConst {
 		fn, _ = fe.consts[s.src].(*LFunction)
-	} else if h, ok := fe.homeSlot(a); ok && h < len(fe.frame) {
-		fn, _ = fe.frame[h].(*LFunction)
+	} else if h, ok := fe.homeSlot(a); ok {
+		fn, _ = fe.peek(h).(*LFunction)
 		home = h
 	}
 	if fn == nil || fn.IsG || fn.Proto == nil {

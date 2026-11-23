@@ -151,6 +151,13 @@ Three kinds of speculation go beyond registers (`jit_frontend.go`,
   the same copy) and hold a number. A store writes the number and marks
   the cached box stale; the interpreter rebuilds it on its next read.
   Sites that see several table layouts are left to the interpreter.
+- **References into tables.** A table, string or function read from an
+  array element or a field is not copied into the register (that would
+  be a pointer write). The register state records the address of the
+  value inside the table; further accesses load the type and data words
+  from there. The address is valid until Go code runs again, so every
+  callout and exit first copies the referenced values into their
+  registers, reading them before anything is written.
 - **Upvalues.** A closed upvalue is read from its cell; numbers are
   unboxed, functions and tables become constants guarded by identity. An
   open upvalue of an inlined callee that refers to a register of the
@@ -224,8 +231,8 @@ runtime while it runs. The backends guarantee:
    hold no pointer (the context frame, `[]int64`/`[]float64` array parts,
    a slice length word, the number and kind words of a table field). It
    never stores a pointer into the Go heap, so no write barrier is needed.
-   Boxed values are never copied by native code; they stay in their
-   registry slot and moves are replayed by Go.
+   Boxed values are never copied by native code; they stay where they
+   are (a registry slot, a table) and moves are replayed by Go.
 4. **No hidden roots.** Every Go object native code reads is reachable from
    GC visible memory for the whole native run: the registry and what it
    refers to, and the unit's keep-alive lists for everything addressed

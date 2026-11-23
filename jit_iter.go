@@ -52,15 +52,15 @@ func (fe *jitFrontend) genericFor(a, b, c int) {
 // of the array part. It reports false if the loop is not such a loop.
 func (fe *jitFrontend) ipairsStep(a, rv, nvars, body, exit int) bool {
 	iterHome, ok := fe.homeSlot(a)
-	if !ok || iterHome >= len(fe.frame) || !isIpairsIterator(fe.frame[iterHome]) {
+	if !ok || !isIpairsIterator(fe.peek(iterHome)) {
 		return false
 	}
 	tableHome, ok := fe.homeSlot(a + 1)
-	if !ok || valueKind(fe.frame[tableHome]) != vkTable {
+	if !ok || valueKind(fe.peek(tableHome)) != vkTable {
 		return false
 	}
 	akind := fe.arrayKindOf(tableHome)
-	if akind == arrayKindGeneric || fe.frame[tableHome].(*LTable).Metatable != LNil {
+	if fe.peek(tableHome).(*LTable).Metatable != LNil {
 		return false
 	}
 	ctl, ck, ok := fe.num(a + 2)
@@ -68,7 +68,7 @@ func (fe *jitFrontend) ipairsStep(a, rv, nvars, body, exit int) bool {
 		return false
 	}
 	// the iterator must be the one seen now
-	iter := fe.frame[iterHome]
+	iter := fe.peek(iterHome)
 	fe.constIndex(iter) // keeps it alive
 	sameIter := fe.op(jit.OpEq, jit.TInt, fe.slotData(iterHome), fe.constInt(int64(uintptr(dataOf(iter)))))
 	isFn := fe.op(jit.OpEq, jit.TInt, fe.slotItab(iterHome), fe.constInt(int64(itabFunc)))
@@ -84,13 +84,29 @@ func (fe *jitFrontend) ipairsStep(a, rv, nvars, body, exit int) bool {
 	if ck == skFloat {
 		idx = fe.floatExactInt(ctl, ck)
 	}
-	off := int64(offTableIarr)
-	if akind == arrayKindFloat {
+	off, shift := int64(offTableIarr), int64(3)
+	switch akind {
+	case arrayKindFloat:
 		off = int64(offTableFarr)
+	case arrayKindGeneric:
+		off, shift = int64(offTableArray), 4
 	}
 	data := fe.load(jit.OpLoad64, jit.TInt, tp, off+sliceOffData)
 	n := fe.load(jit.OpLoad64, jit.TInt, tp, off+sliceOffLen)
 	more, done := fe.split(fe.op(jit.OpULt, jit.TInt, idx, n))
+	addr := fe.f.NewValue(more, jit.OpAdd, jit.TInt, 0, data, fe.f.NewValue(more, jit.OpShl, jit.TInt, 0, idx, fe.f.ConstInt(more, shift)))
+	if akind == arrayKindGeneric {
+		// a generic array part can hold nil, which ends the loop as well
+		itab := fe.f.NewValue(more, jit.OpLoad64, jit.TInt, 0, addr)
+		isNil := fe.f.NewValue(more, jit.OpEq, jit.TInt, 0, itab, fe.f.ConstInt(more, int64(itabNil)))
+		hole, elem := fe.f.NewBlock(), fe.f.NewBlock()
+		more.Kind = jit.BlockIf
+		more.Control = isNil
+		jit.AddEdge(more, hole)
+		jit.AddEdge(more, elem)
+		jumpIR(hole, done)
+		more = elem
+	}
 
 	// finished: the iterator returns nil and nothing changes
 	saved := cloneState(fe.st)
@@ -98,7 +114,6 @@ func (fe *jitFrontend) ipairsStep(a, rv, nvars, body, exit int) bool {
 	fe.connect(fe.cur, exit, fe.st)
 
 	fe.cur, fe.st = more, saved
-	addr := fe.op(jit.OpAdd, jit.TInt, data, fe.op(jit.OpShl, jit.TInt, idx, fe.constInt(3)))
 	next := fe.op(jit.OpAdd, jit.TInt, idx, fe.constInt(1))
 	nk, nv := skInt, next
 	if !fe.L.lang55 {
@@ -108,6 +123,11 @@ func (fe *jitFrontend) ipairsStep(a, rv, nvars, body, exit int) bool {
 	fe.set(rv, nk, nv)
 	if nvars > 1 {
 		switch akind {
+		case arrayKindGeneric:
+			fe.st[rv+1] = slotState{kind: skRef, val: addr, src: int32(rv + 1)}
+			if sample := firstElement(fe.peek(tableHome)); sample != nil {
+				fe.refPeek[int32(rv+1)] = sample
+			}
 		case arrayKindInt:
 			fe.set(rv+1, skInt, fe.load(jit.OpLoad64, jit.TInt, addr, 0))
 		case arrayKindBool:

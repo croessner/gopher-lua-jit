@@ -311,6 +311,30 @@ func (ls *LState) jitOpenTop(m *exitMeta, base int) {
 	}
 }
 
+// exitValue returns the raw value of a snapshot entry: the content of the
+// machine register or spill slot it was in, or its constant.
+func exitValue(e *jit.ExitEntry, frame []uint64) uint64 {
+	switch e.Loc.Kind {
+	case jit.LocReg:
+		return frame[jit.CtxSaveG/8+e.Loc.N]
+	case jit.LocFReg:
+		return frame[jit.CtxSaveF/8+e.Loc.N]
+	case jit.LocSpill:
+		return frame[jit.CtxSpill/8+e.Loc.N]
+	}
+	return uint64(e.Const)
+}
+
+// loadBoxed reads the value at an address that native code computed: an
+// element of the array part or the value of a string-keyed entry of a
+// table that is reachable from the registers. The table has not been
+// modified since, because no Go code ran in between.
+//
+//go:nocheckptr
+func loadBoxed(addr uintptr) LValue {
+	return *(*LValue)(unsafe.Pointer(addr))
+}
+
 // jitApply writes the registers described by a snapshot back into the
 // registry.
 func (ls *LState) jitApply(u *jitUnit, entries []jit.ExitEntry, frame []uint64, base int) {
@@ -322,28 +346,23 @@ func (ls *LState) jitApply(u *jitUnit, entries []jit.ExitEntry, frame []uint64, 
 		reg.SetTop(top)
 	}
 	arr := reg.array
-	// boxed copies read their source before anything is overwritten
-	var aliasBuf [8]LValue
-	aliases := aliasBuf[:0]
+	// Boxed copies read their source before anything is overwritten:
+	// other registers, or the place in a table native code loaded the
+	// value from (nothing has changed there since).
+	var boxedBuf [8]LValue
+	boxed := boxedBuf[:0]
 	for i := range entries {
-		if entries[i].Tag == tagAlias {
-			aliases = append(aliases, arr[base+int(entries[i].Const)])
+		switch e := &entries[i]; e.Tag {
+		case tagAlias:
+			boxed = append(boxed, arr[base+int(e.Const)])
+		case tagRef:
+			boxed = append(boxed, loadBoxed(uintptr(exitValue(e, frame))))
 		}
 	}
-	ai := 0
+	bi := 0
 	for i := range entries {
 		e := &entries[i]
-		var raw uint64
-		switch e.Loc.Kind {
-		case jit.LocReg:
-			raw = frame[jit.CtxSaveG/8+e.Loc.N]
-		case jit.LocFReg:
-			raw = frame[jit.CtxSaveF/8+e.Loc.N]
-		case jit.LocSpill:
-			raw = frame[jit.CtxSpill/8+e.Loc.N]
-		default:
-			raw = uint64(e.Const)
-		}
+		raw := exitValue(e, frame)
 		var v LValue
 		switch e.Tag {
 		case tagInt:
@@ -358,9 +377,9 @@ func (ls *LState) jitApply(u *jitUnit, entries []jit.ExitEntry, frame []uint64, 
 			}
 		case tagNil:
 			v = LNil
-		case tagAlias:
-			v = aliases[ai]
-			ai++
+		case tagAlias, tagRef:
+			v = boxed[bi]
+			bi++
 		case tagConst:
 			v = u.consts[raw]
 		}
@@ -569,7 +588,7 @@ func (ls *LState) jitExitNote(u *jitUnit, id int, m *exitMeta, base int, iterati
 		}
 		u.jp.feedback[call.site] = jitFieldMisses
 		js.discard(u)
-		js.logf("discard unit at pc %d: inlined call at pc %d leaves native code too often", lp.pc, call.callPC)
+		js.logf("discard unit at pc %d: inlined call at pc %d leaves native code too often (at pc %d of the callee)", lp.pc, call.callPC, x.PC)
 		return
 	}
 	js.discard(u)

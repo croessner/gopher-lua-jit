@@ -68,11 +68,11 @@ func (fe *jitFrontend) selfMethod(a, b, c int) bool {
 	}
 	name := fe.proto.stringConstants[c&^opBitRk]
 	home, ok := fe.homeSlot(b)
-	if !ok || home >= len(fe.frame) {
+	if !ok {
 		return false
 	}
-	obj, isTable := fe.frame[home].(*LTable)
-	site := feedbackKey{fe.fbpc(), int16(home), fbField}
+	obj, isTable := fe.peek(home).(*LTable)
+	site := feedbackKey{fe.fbpc(), int16(locSlot(home)), fbField}
 	if !isTable || fe.jp.feedback[site] >= jitFieldMisses {
 		return false
 	}

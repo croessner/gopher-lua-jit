@@ -355,7 +355,7 @@ func (g *progGen) expr(depth int) string {
 	if g.lua55 {
 		ops = append(ops, "//", "&", "|", "~", "<<", ">>")
 	}
-	switch g.rng.Intn(21) {
+	switch g.rng.Intn(24) {
 	case 0:
 		return "math.floor(" + l + ")"
 	case 1:
@@ -380,6 +380,10 @@ func (g *progGen) expr(depth int) string {
 		return "obj:get()"
 	case 11:
 		return "obj:bump(" + l + ")"
+	case 12:
+		return "h7(names[i % 4 + 1], names[" + []string{"1", "2", "(i + 1) % 4 + 1"}[g.rng.Intn(3)] + "])"
+	case 13:
+		return "(recs[i % 3 + 1].n + #recs[i % 3 + 1].tag)"
 	}
 	op := ops[g.rng.Intn(len(ops))]
 	switch op {
@@ -422,7 +426,8 @@ func (g *progGen) stmt() {
 			fmt.Fprintf(&g.sb, "%sif i %% 41 == 0 then %s end\n", ind, []string{
 				"Cls.get = function(self) return self.v end", "obj.extra = i", "obj.get = function() return 3 end",
 				"obj.get = nil", "Cls.bump = function(self, m) return m end",
-			}[g.rng.Intn(5)])
+				"recs[2] = {n = i, tag = 'new'}", "recs[1].n = recs[1].n + 1", "names[3] = names[1]", "recs[3].tag = 'x'",
+			}[g.rng.Intn(9)])
 		default:
 			fmt.Fprintf(&g.sb, "%s%s = %s\n", ind, g.v(), g.expr(2))
 		}
@@ -479,6 +484,9 @@ func (g *progGen) generate() string {
 	g.sb.WriteString("local function h4(m, n) return n, m end\n")
 	g.sb.WriteString("local function h5(m, n) if m > n then return m end return n end\n")
 	g.sb.WriteString("local function h6(m) local r = m if m < 0 then r = -m end return r + (m > k1 and 1 or 0) end\n")
+	g.sb.WriteString("local names = {'delta', 'alpha', 'gamma', 'beta'}\n")
+	g.sb.WriteString("local recs = {{n = 1, tag = 'a'}, {n = 2.5, tag = 'bb'}, {n = 3, tag = 'ccc'}}\n")
+	g.sb.WriteString("local function h7(m, n) if m < n then return 1 end return 0 end\n")
 	g.sb.WriteString("local Cls = {}\nCls.__index = Cls\n")
 	g.sb.WriteString("function Cls:get() return self.u + self.v end\n")
 	g.sb.WriteString("function Cls:bump(m) self.u = self.u + m return self.u end\n")

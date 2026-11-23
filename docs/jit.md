@@ -67,6 +67,12 @@ Compiled natively inside hot loops (both profiles):
   length operator on such tables;
 - reads and writes of **number fields** (`p.x = p.x + p.y`): the position
   of the field is cached per access and guarded by the identity of the key;
+- reads of **tables, strings and functions** from array elements and
+  fields (`objs[i].pos.x`, `for _, o in ipairs(objs)`): the register
+  refers to the value where it is stored instead of copying it, so chains
+  of field accesses, arrays of objects and linked structures need no
+  interpreter. `ipairs` over such arrays advances natively as well;
+- the length of strings and of arrays (`#s`, `#t`);
 - reads of **upvalues** that hold numbers, functions or tables;
 - **calls of small Lua functions**: a callee made of simple instructions
   (arithmetic, comparisons, field and array access, upvalue reads, further
@@ -81,10 +87,9 @@ Compiled natively inside hot loops (both profiles):
   (classes, up to four levels of inheritance) and then inlined like any
   other small function. Objects with more than eight string keys, or
   whose `__index` is a function, are looked up by the interpreter;
-- generic `for` loops: the loop body is compiled; `ipairs` over an array
-  of numbers or booleans advances natively, every other iterator
-  (`pairs`, `ipairs` over other values, custom iterators) is called
-  through the interpreter once per iteration;
+- generic `for` loops: the loop body is compiled; `ipairs` over a table
+  without metatable advances natively, every other iterator (`pairs`,
+  custom iterators) is called through the interpreter once per iteration;
 - truth tests and comparisons with `nil` on arbitrary values;
 - `math.sqrt`, `math.floor`, `math.ceil`, `math.abs` when reached through
   the unmodified `math` table.
@@ -92,8 +97,9 @@ Compiled natively inside hot loops (both profiles):
 Executed by the interpreter on behalf of native code (a *callout*; correct
 but with a fixed overhead of a few dozen nanoseconds each):
 
-- everything involving strings, fields that hold strings, tables or
-  functions, writes to upvalues, table creation, closures, metamethods;
+- string operations other than the length, stores of strings, tables or
+  functions into tables, writes to upvalues, table creation, closures,
+  metamethods;
 - calls of Go functions, and calls of Lua functions that are not inlined
   (those with loops, varargs, more than 40 instructions or instructions
   from this list):

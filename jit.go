@@ -452,6 +452,7 @@ var (
 	itabBool    = itabOf(LTrue)
 	itabTable   = itabOf(&LTable{})
 	itabFunc    = itabOf(&LFunction{})
+	itabString  = itabOf(LString("string"))
 
 	offTableAkind     = unsafe.Offsetof(LTable{}.akind)
 	offTableArray     = unsafe.Offsetof(LTable{}.array)
@@ -527,6 +528,10 @@ func checkJITLayout() bool {
 	// kind and stale flag holds nothing else
 	str := "layout"
 	if sh := (*[2]uintptr)(unsafe.Pointer(&str)); sh[0] != uintptr(unsafe.Pointer(unsafe.StringData(str))) || sh[1] != 6 {
+		return false
+	}
+	// a boxed string is a pointer to such a pair
+	if *(*string)(dataOf(LString(str))) != str {
 		return false
 	}
 	if offFieldStale != offFieldKind+1 || offFieldKind%8 != 0 || fieldSize != offFieldKind+8 || !littleEndian() {

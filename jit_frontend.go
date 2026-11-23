@@ -33,6 +33,14 @@ const (
 	skNil                   // the constant nil
 	skAlias                 // boxed copy of the home slot src
 	skConst                 // boxed constant (index src of the unit pool)
+	// skRef is a boxed copy of a value inside a table: val is the address
+	// of the value (an element of the array part or the value of a
+	// string-keyed entry). The address is only used until Go code runs
+	// again, which may move or change the table's storage: the copy is
+	// written to the home slot at every callout. src is the register the
+	// value was loaded into first; what the interpreter left there last
+	// time predicts what the value is.
+	skRef
 )
 
 // slotState is the abstract state of one Lua register.
@@ -62,6 +70,7 @@ const (
 	tagNil
 	tagAlias // boxed copy of another register (constant: source register)
 	tagConst // boxed constant of the unit pool (constant: index)
+	tagRef   // boxed copy of the value at an address
 )
 
 // Kinds of exits as seen by the driver.
@@ -232,6 +241,12 @@ type jitFrontend struct {
 	scope    *LFunction
 	slotBase int
 	fbBase   int32
+	// refPeek holds, by the register a reference was loaded into, a
+	// value like the ones the reference will see (an element of the
+	// array or the value of the field it was loaded from).
+	refPeek map[int32]LValue
+	// fieldSample is the value of the field fieldRef located last.
+	fieldSample LValue
 	// edges collects the control flow edges inside the inlined callee
 	// that is being translated, by target position (see inlineBody).
 	edges map[int][]feEdge
@@ -308,6 +323,7 @@ func (fe *jitFrontend) translate() (err error) {
 	fe.openTop = -1
 	fe.pendingTop = -1
 	fe.inlined = fe.inlined[:0]
+	fe.refPeek = make(map[int32]LValue)
 	fe.meta = fe.meta[:0]
 	fe.consts = fe.consts[:0]
 	fe.keep = fe.keep[:0]
@@ -591,7 +607,7 @@ func (fe *jitFrontend) snapshot(b *jit.Block, st []slotState, pc int, only func(
 		if !s.stale() || !live.has(slot) {
 			continue
 		}
-		if only != nil && s.kind != skAlias && !only(slot) {
+		if only != nil && s.kind != skAlias && s.kind != skRef && !only(slot) {
 			continue
 		}
 		e := jit.SnapEntry{Slot: slot}
@@ -608,6 +624,8 @@ func (fe *jitFrontend) snapshot(b *jit.Block, st []slotState, pc int, only func(
 			e.Tag, e.Val = tagAlias, fe.f.ConstInt(b, int64(s.src))
 		case skConst:
 			e.Tag, e.Val = tagConst, fe.f.ConstInt(b, int64(s.src))
+		case skRef:
+			e.Tag, e.Val = tagRef, s.val
 		}
 		snap = append(snap, e)
 	}
@@ -618,6 +636,9 @@ func (fe *jitFrontend) snapshot(b *jit.Block, st []slotState, pc int, only func(
 // instruction. fbSlot, if >= 0, is the register whose kind is recorded
 // when the guard fails.
 func (fe *jitFrontend) guard(cond *jit.Value, fbSlot int, fbWhat uint8) {
+	if fbSlot >= 0 {
+		fbSlot = locSlot(fbSlot)
+	}
 	x := fe.newExit(jit.ExitDeopt, fe.pc, exitMeta{kind: emDeopt, fbSlot: int16(fbSlot), fbWhat: fbWhat})
 	x.Snap = fe.snapshot(fe.cur, fe.st, fe.pc, nil)
 	g := fe.f.NewValue(fe.cur, jit.OpGuard, jit.TInt, 0, cond)
@@ -681,15 +702,20 @@ func (fe *jitFrontend) flushOn(b *jit.Block, st []slotState, pc int, only func(s
 // stale live registers are written back first so that the interpreter
 // could also take over completely.
 func (fe *jitFrontend) calloutInst() {
+	if fe.inl != 0 {
+		panic("jit: callout inside an inlined call")
+	}
 	x := fe.newExit(jit.ExitCallout, fe.pc, exitMeta{kind: emInst, fbSlot: -1})
 	x.Snap = fe.snapshot(fe.cur, fe.st, fe.pc, nil)
 	fe.f.NewValue(fe.cur, jit.OpCallout, jit.TInt, 0).Exit = x
 	markFlushed(fe.st, x.Snap)
 	fe.callouts++
-	// whatever the instruction wrote is now boxed in its home slot
+	// whatever the instruction wrote is now boxed in its home slot, and
+	// references into tables that were not written back are dead: the
+	// interpreter may have changed the tables
 	e := &fe.info.effects[fe.pc]
 	for slot := range fe.st {
-		if e.writes.has(slot) || fe.info.escaped.has(slot) {
+		if e.writes.has(slot) || fe.info.escaped.has(slot) || fe.st[slot].kind == skRef {
 			fe.st[slot] = slotState{}
 		}
 	}
@@ -952,14 +978,66 @@ func (fe *jitFrontend) load(o jit.Op, typ jit.Type, base *jit.Value, disp int64)
 	return fe.f.NewValue(fe.cur, o, typ, disp, base)
 }
 
-// slotItab loads the type word of the boxed value in a home slot.
-func (fe *jitFrontend) slotItab(slot int) *jit.Value {
-	return fe.load(jit.OpLoad64, jit.TInt, fe.f.RegBase(), int64(slot)*lvalueSize)
+// A boxed value is read from a location: the home slot of a register,
+// identified by the slot number, or the place inside a table that a
+// register refers to (skRef), identified by refLoc of that register.
+
+// refBias distinguishes the two kinds of locations.
+const refBias = 1 << 12
+
+// refLoc returns the location of the value the register slot refers to.
+func refLoc(slot int) int { return slot + refBias }
+
+// locSlot returns the register a location belongs to: the home slot or
+// the register that holds the reference.
+func locSlot(loc int) int { return loc &^ refBias }
+
+// firstElement returns an element of the generic array part of the table
+// v as a sample of what the array holds, or nil.
+func firstElement(v LValue) LValue {
+	tb, ok := v.(*LTable)
+	if !ok || tb.akind != arrayKindGeneric {
+		return nil
+	}
+	for _, e := range tb.array {
+		if e != nil && e != LNil {
+			return e
+		}
+	}
+	return nil
 }
 
-// slotData loads the data word of the boxed value in a home slot.
-func (fe *jitFrontend) slotData(slot int) *jit.Value {
-	return fe.load(jit.OpLoad64, jit.TInt, fe.f.RegBase(), int64(slot)*lvalueSize+8)
+// peek returns the value that was last seen at a location: for a home
+// slot its current content, for a reference what the register held when
+// the interpreter last ran this code.
+func (fe *jitFrontend) peek(loc int) LValue {
+	slot := loc
+	if loc >= refBias {
+		slot = int(fe.st[locSlot(loc)].src)
+		if v, ok := fe.refPeek[int32(slot)]; ok {
+			return v
+		}
+	}
+	if slot < len(fe.frame) {
+		return fe.frame[slot]
+	}
+	return nil
+}
+
+// slotItab loads the type word of the boxed value at a location.
+func (fe *jitFrontend) slotItab(loc int) *jit.Value {
+	if loc >= refBias {
+		return fe.load(jit.OpLoad64, jit.TInt, fe.st[locSlot(loc)].val, 0)
+	}
+	return fe.load(jit.OpLoad64, jit.TInt, fe.f.RegBase(), int64(loc)*lvalueSize)
+}
+
+// slotData loads the data word of the boxed value at a location.
+func (fe *jitFrontend) slotData(loc int) *jit.Value {
+	if loc >= refBias {
+		return fe.load(jit.OpLoad64, jit.TInt, fe.st[locSlot(loc)].val, 8)
+	}
+	return fe.load(jit.OpLoad64, jit.TInt, fe.f.RegBase(), int64(loc)*lvalueSize+8)
 }
 
 // unbox loads the number in the home slot into an SSA value, guarded by a
@@ -983,6 +1061,26 @@ func (fe *jitFrontend) unbox(slot int, kind slotKind) *jit.Value {
 	return v
 }
 
+// unboxRef unboxes the number a register refers to (skRef). The home
+// slot of the register does not hold it.
+func (fe *jitFrontend) unboxRef(slot int, kind slotKind) *jit.Value {
+	itab := int64(itabInteger)
+	if kind == skFloat {
+		itab = int64(itabNumber)
+	}
+	loc := refLoc(slot)
+	fe.guard(fe.op(jit.OpEq, jit.TInt, fe.slotItab(loc), fe.constInt(itab)), slot, fbValue)
+	p := fe.slotData(loc)
+	var v *jit.Value
+	if kind == skFloat {
+		v = fe.load(jit.OpLoadF64, jit.TFloat, p, 0)
+	} else {
+		v = fe.load(jit.OpLoad64, jit.TInt, p, 0)
+	}
+	fe.st[slot] = slotState{kind: kind, dirty: true, val: v}
+	return v
+}
+
 // predictKind returns the value kind expected in a home slot at the
 // current instruction: recorded feedback first, else the value the
 // register holds right now.
@@ -993,15 +1091,18 @@ func (fe *jitFrontend) predictKind(slot int) uint8 {
 	return valueKind(fe.frame[slot])
 }
 
-// homeSlot resolves a register holding a boxed value to the home slot
-// that currently contains it. ok is false for registers that are not a
-// boxed value in some home slot.
+// homeSlot resolves a register holding a boxed value to the location
+// the value is read from: the home slot that contains it or the place in
+// a table the register refers to. ok is false for registers that do not
+// hold a boxed value that is in memory.
 func (fe *jitFrontend) homeSlot(slot int) (int, bool) {
 	switch s := &fe.st[slot]; s.kind {
 	case skHome:
 		return slot, true
 	case skAlias:
 		return int(s.src), true
+	case skRef:
+		return refLoc(slot), true
 	}
 	return 0, false
 }
@@ -1020,6 +1121,13 @@ func (fe *jitFrontend) num(slot int) (v *jit.Value, kind slotKind, ok bool) {
 			return fe.unbox(slot, skInt), skInt, true
 		case vkFloat:
 			return fe.unbox(slot, skFloat), skFloat, true
+		}
+	case skRef:
+		switch valueKind(fe.peek(refLoc(slot))) {
+		case vkInt:
+			return fe.unboxRef(slot, skInt), skInt, true
+		case vkFloat:
+			return fe.unboxRef(slot, skFloat), skFloat, true
 		}
 	}
 	return nil, 0, false
@@ -1446,7 +1554,7 @@ func (fe *jitFrontend) move(a, b int) {
 	switch s.kind {
 	case skInt, skFloat, skBool:
 		fe.set(a, s.kind, s.val)
-	case skNil, skAlias, skConst:
+	case skNil, skAlias, skConst, skRef:
 		fe.st[a] = s
 	default:
 		// a boxed value: try to unbox numbers, else record an alias
@@ -1637,6 +1745,11 @@ func (fe *jitFrontend) compare(op, a, b, c int) {
 	}
 	// generic comparison: the interpreter executes it and reports whether
 	// it skipped the next instruction
+	if fe.inl != 0 {
+		// (not for an inlined callee, which has no frame: see generic)
+		fe.unsupported()
+		return
+	}
 	fe.calloutInst()
 	res := fe.load(jit.OpLoad64, jit.TInt, fe.f.Ctx(), jit.CtxResult)
 	fe.branch(fe.op(jit.OpNe, jit.TInt, res, fe.constInt(0)), pc+2, pc+1)
@@ -1880,7 +1993,7 @@ func (fe *jitFrontend) forLoop(a, pcBody, pcExit int) {
 // ok is false if the register is not (predictably) a table.
 func (fe *jitFrontend) tableOf(slot int) (tp *jit.Value, home int, ok bool) {
 	home, ok = fe.homeSlot(slot)
-	if !ok || valueKind(fe.frame[home]) != vkTable {
+	if !ok || valueKind(fe.peek(home)) != vkTable {
 		return nil, 0, false
 	}
 	fe.guard(fe.op(jit.OpEq, jit.TInt, fe.slotItab(home), fe.constInt(int64(itabTable))), home, fbValue)
@@ -1890,10 +2003,10 @@ func (fe *jitFrontend) tableOf(slot int) (tp *jit.Value, home int, ok bool) {
 // arrayKindOf predicts the array representation of the table in a home
 // slot at the current instruction.
 func (fe *jitFrontend) arrayKindOf(home int) uint8 {
-	if k, ok := fe.jp.feedback[feedbackKey{fe.fbpc(), int16(home), fbArray}]; ok {
+	if k, ok := fe.jp.feedback[feedbackKey{fe.fbpc(), int16(locSlot(home)), fbArray}]; ok {
 		return k
 	}
-	if tb, ok := fe.frame[home].(*LTable); ok {
+	if tb, ok := fe.peek(home).(*LTable); ok {
 		return tb.akind
 	}
 	return arrayKindGeneric
@@ -1927,16 +2040,20 @@ func (fe *jitFrontend) getTable(a, b, c int) bool {
 		return false
 	}
 	home, _ := fe.homeSlot(b)
-	if valueKind(fe.frame[home]) != vkTable {
+	if valueKind(fe.peek(home)) != vkTable {
 		return false
 	}
 	akind := fe.arrayKindOf(home)
 	// the result kind for generic arrays is predicted from the value the
 	// destination register holds from the previous iteration
 	resKind := fe.predictKind(a)
-	if akind == arrayKindGeneric && resKind != vkInt && resKind != vkFloat {
-		return false
+	sample := firstElement(fe.peek(home))
+	if _, known := fe.jp.feedback[feedbackKey{fe.fbpc(), int16(a), fbValue}]; !known && sample != nil {
+		resKind = valueKind(sample)
 	}
+	// any other element of a generic array is not copied: the register
+	// refers to it where it is
+	byRef := akind == arrayKindGeneric && resKind != vkInt && resKind != vkFloat
 	idx, ok := fe.arrayIndex(c)
 	if !ok {
 		return false
@@ -1968,6 +2085,16 @@ func (fe *jitFrontend) getTable(a, b, c int) bool {
 		fe.set(a, skFloat, fe.load(jit.OpLoadF64, jit.TFloat, addr, 0))
 	default:
 		addr := fe.op(jit.OpAdd, jit.TInt, data, fe.op(jit.OpShl, jit.TInt, idx, fe.constInt(4)))
+		if byRef {
+			// (a nil element would have to consult __index)
+			mt := fe.load(jit.OpLoad64, jit.TInt, tp, int64(offTableMetatable))
+			fe.guard(fe.op(jit.OpEq, jit.TInt, mt, fe.constInt(int64(itabNil))), -1, 0)
+			fe.st[a] = slotState{kind: skRef, val: addr, src: int32(a)}
+			if sample != nil {
+				fe.refPeek[int32(a)] = sample
+			}
+			return true
+		}
 		itab := int64(itabInteger)
 		if resKind == vkFloat {
 			itab = int64(itabNumber)
@@ -1988,7 +2115,7 @@ func (fe *jitFrontend) getTable(a, b, c int) bool {
 // appends that fit the capacity of the array.
 func (fe *jitFrontend) setTable(a, b, c int) bool {
 	home, ok := fe.homeSlot(a)
-	if !ok || valueKind(fe.frame[home]) != vkTable {
+	if !ok || valueKind(fe.peek(home)) != vkTable {
 		return false
 	}
 	akind := fe.arrayKindOf(home)
@@ -2165,17 +2292,20 @@ func (fe *jitFrontend) getUpval(a, idx int) bool {
 // functions share one copy (see intern.go); a table filled with another
 // copy of the key, for example by Go code, is accepted through the copy
 // found now.
-func (fe *jitFrontend) fieldRef(slot int, key string) (data *jit.Value, disp int64, kind uint8, ok bool) {
+func (fe *jitFrontend) fieldRef(slot int, key string, boxedOK bool) (data *jit.Value, disp int64, kind uint8, ok bool) {
 	home, ok := fe.homeSlot(slot)
 	if !ok {
 		return nil, 0, 0, false
 	}
-	tb, isTable := fe.frame[home].(*LTable)
-	if !isTable || fe.jp.feedback[feedbackKey{fe.fbpc(), int16(home), fbField}] >= jitFieldMisses {
+	tb, isTable := fe.peek(home).(*LTable)
+	if !isTable || fe.jp.feedback[feedbackKey{fe.fbpc(), int16(locSlot(home)), fbField}] >= jitFieldMisses {
 		return nil, 0, 0, false
 	}
 	idx := tb.findField(key)
-	if idx < 0 || idx >= jitMaxFieldIndex || tb.fields[idx].kind == fieldBoxed {
+	if idx >= 0 {
+		fe.fieldSample = tb.fields[idx].value
+	}
+	if idx < 0 || idx >= jitMaxFieldIndex || tb.fields[idx].removed() || (tb.fields[idx].kind == fieldBoxed && !boxedOK) {
 		return nil, 0, 0, false
 	}
 	f := &tb.fields[idx]
@@ -2202,17 +2332,26 @@ func (fe *jitFrontend) getField(a, b, c int) bool {
 	if c&opBitRk == 0 {
 		return false
 	}
-	data, disp, kind, ok := fe.fieldRef(b, fe.proto.stringConstants[c&^opBitRk])
+	data, disp, kind, ok := fe.fieldRef(b, fe.proto.stringConstants[c&^opBitRk], true)
 	if !ok {
 		return false
 	}
 	home, _ := fe.homeSlot(b)
 	cur := fe.load(jit.OpLoad8, jit.TInt, data, disp+int64(offFieldKind))
 	fe.guard(fe.op(jit.OpEq, jit.TInt, cur, fe.constInt(int64(kind))), home, fbField)
-	if kind == fieldInt {
+	switch kind {
+	case fieldInt:
 		fe.set(a, skInt, fe.load(jit.OpLoad64, jit.TInt, data, disp+int64(offFieldNum)))
-	} else {
+	case fieldFloat:
 		fe.set(a, skFloat, fe.load(jit.OpLoadF64, jit.TFloat, data, disp+int64(offFieldNum)))
+	default:
+		// a string, table, function, ...: the register refers to the
+		// value where it is. (An entry that was removed holds nil and
+		// would have to consult __index.)
+		itab := fe.load(jit.OpLoad64, jit.TInt, data, disp+int64(offFieldValue))
+		fe.guard(fe.op(jit.OpNe, jit.TInt, itab, fe.constInt(int64(itabNil))), home, fbField)
+		fe.st[a] = slotState{kind: skRef, src: int32(a), val: fe.op(jit.OpAdd, jit.TInt, data, fe.constInt(disp+int64(offFieldValue)))}
+		fe.refPeek[int32(a)] = fe.fieldSample
 	}
 	return true
 }
@@ -2239,7 +2378,7 @@ func (fe *jitFrontend) setField(a, b, c int) bool {
 	if !ok {
 		return false
 	}
-	data, disp, _, ok := fe.fieldRef(a, key)
+	data, disp, _, ok := fe.fieldRef(a, key, false)
 	if !ok {
 		return false
 	}
@@ -2261,27 +2400,52 @@ func (fe *jitFrontend) setField(a, b, c int) bool {
 // and no metatable.
 func (fe *jitFrontend) length(a, b int) bool {
 	home, ok := fe.homeSlot(b)
-	if !ok || valueKind(fe.frame[home]) != vkTable {
+	if !ok {
+		return false
+	}
+	setLen := func(n *jit.Value) {
+		if fe.L.lang55 {
+			fe.set(a, skInt, n)
+		} else {
+			fe.set(a, skFloat, fe.op(jit.OpIntToFloat, jit.TFloat, n))
+		}
+	}
+	if valueKind(fe.peek(home)) == vkString {
+		// the length of a string is the second word of its header
+		fe.guard(fe.op(jit.OpEq, jit.TInt, fe.slotItab(home), fe.constInt(int64(itabString))), home, fbValue)
+		setLen(fe.load(jit.OpLoad64, jit.TInt, fe.slotData(home), 8))
+		return true
+	}
+	if valueKind(fe.peek(home)) != vkTable {
 		return false
 	}
 	akind := fe.arrayKindOf(home)
-	if akind == arrayKindGeneric {
-		return false
-	}
 	tp, home, _ := fe.tableOf(b)
 	fe.guard(fe.op(jit.OpEq, jit.TInt, fe.load(jit.OpLoad8, jit.TInt, tp, int64(offTableAkind)), fe.constInt(int64(akind))), home, fbArray)
 	mt := fe.load(jit.OpLoad64, jit.TInt, tp, int64(offTableMetatable))
 	fe.guard(fe.op(jit.OpEq, jit.TInt, mt, fe.constInt(int64(itabNil))), -1, 0)
 	off := int64(offTableIarr)
-	if akind == arrayKindFloat {
+	switch akind {
+	case arrayKindFloat:
 		off = int64(offTableFarr)
+	case arrayKindGeneric:
+		off = int64(offTableArray)
 	}
 	n := fe.load(jit.OpLoad64, jit.TInt, tp, off+sliceOffLen)
-	if fe.L.lang55 {
-		fe.set(a, skInt, n)
-	} else {
-		fe.set(a, skFloat, fe.op(jit.OpIntToFloat, jit.TFloat, n))
+	if akind == arrayKindGeneric {
+		// the length is the number of elements unless the array part
+		// ends with nil values, which the interpreter sorts out
+		data := fe.load(jit.OpLoad64, jit.TInt, tp, off+sliceOffData)
+		filled, empty := fe.split(fe.op(jit.OpNe, jit.TInt, n, fe.constInt(0)))
+		join := fe.f.NewBlock()
+		fe.cur = filled
+		last := fe.op(jit.OpAdd, jit.TInt, data, fe.op(jit.OpShl, jit.TInt, fe.op(jit.OpSub, jit.TInt, n, fe.constInt(1)), fe.constInt(4)))
+		fe.guard(fe.op(jit.OpNe, jit.TInt, fe.load(jit.OpLoad64, jit.TInt, last, 0), fe.constInt(int64(itabNil))), -1, 0)
+		jumpIR(fe.cur, join)
+		jumpIR(empty, join)
+		fe.cur = join
 	}
+	setLen(n)
 	return true
 }
 
