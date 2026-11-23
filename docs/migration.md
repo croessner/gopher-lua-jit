@@ -44,8 +44,17 @@ behaviour was already incorrect Lua:
 | `L.NewTable()` | reserved a 32 element array and a hash map for every table | allocates both parts on first use |
 
 Deliberately kept from GopherLua although reference Lua 5.1 differs: a call
-continued on the next line (`f(1)` newline `(g)(2)`) is one statement, and
-repeated field separators in table constructors (`{1, , 2}`) are accepted.
+continued on the next line (`f(1)` newline `(g)(2)`) is one statement,
+repeated field separators in table constructors (`{1, , 2}`) are accepted,
+and the array part of a table keeps the slot of an element that is set to
+`nil`: after `t = {1, 2, 3}; t[3] = nil`, `table.remove(t)` removes that
+slot and returns `nil`, and only the next call returns `2`. `table.insert`
+with a position counts such slots as well. This holds for every
+representation of a table, with and without the JIT; the test
+`TestTablesBehaveLikeUpstream` compares random sequences of table
+operations with the results of upstream GopherLua v1.1.2
+(`testdata/table_compat_upstream.txt`, written by
+`benchmarks/tablecompat`).
 
 ## Opting into Lua 5.5
 

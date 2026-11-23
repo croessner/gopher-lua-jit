@@ -160,6 +160,12 @@ type LTable struct {
 	// arrayKindInt or arrayKindFloat (see table.go).
 	iarr []int64
 	farr []float64
+	// tail is the number of nil slots that GopherLua's array part would
+	// hold behind the stored elements: assigning nil to the last element
+	// leaves its slot behind, and so does assigning nil beyond the end.
+	// The slots are not stored, but table.insert and table.remove of the
+	// Lua 5.1 profile count them (see table.go).
+	tail int
 	// akind is the representation of the array part.
 	akind uint8
 	// typedOK allows the array part to use the unboxed representations.

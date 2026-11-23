@@ -82,6 +82,14 @@ on first use. Compared with GopherLua:
   converts it back to `[]LValue`. This representation contains no pointers,
   so the garbage collector does not scan it and JIT code can read and write
   elements directly.
+- **Nil slots behind the array part.** GopherLua's array part is a slice
+  that keeps the slot of an element that is set to `nil` and grows up to
+  a position that `nil` is assigned to; `table.remove` and `table.insert`
+  of the Lua 5.1 profile work on these slots, so their number is
+  observable. An unboxed array cannot hold `nil`, and storing the slots
+  would only cost memory, so every table counts them (`tail`) instead:
+  the array part is the stored elements followed by that many nil slots.
+  An element appended to the stored part takes the first of them.
 - **A version counter** that is bumped when a string-keyed entry holding a
   function or table is replaced, once the table is "watched". JIT code uses
   it to treat library functions (`math.floor`) as guarded constants.

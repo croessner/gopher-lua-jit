@@ -217,6 +217,37 @@ func (tb *LTable) arrayLen() int {
 	return len(tb.array)
 }
 
+// slots returns the number of slots of the array part as GopherLua
+// counts them: the stored elements and the nil slots behind them.
+func (tb *LTable) slots() int {
+	return tb.arrayLen() + tb.tail
+}
+
+// claimSlot accounts for an element that was appended to the stored
+// part: it takes the first nil slot behind it, if there is one.
+func (tb *LTable) claimSlot() {
+	if tb.tail > 0 {
+		tb.tail--
+	}
+}
+
+// nilSlot accounts for nil being assigned to the 0-based index at or
+// behind the end of the stored part: the array part reaches that slot.
+func (tb *LTable) nilSlot(index int) {
+	if n := index + 1 - tb.arrayLen(); n > tb.tail {
+		tb.tail = n
+	}
+}
+
+// storeTail turns the nil slots behind the stored part into stored
+// elements of a generic array part.
+func (tb *LTable) storeTail() {
+	tb.genericize()
+	for ; tb.tail > 0; tb.tail-- {
+		tb.array = append(tb.array, LNil)
+	}
+}
+
 // arrayGet returns the element at the 0-based index of the array part.
 func (tb *LTable) arrayGet(index int) LValue {
 	switch tb.akind {
@@ -262,14 +293,19 @@ func (tb *LTable) arraySet(index int, value LValue) {
 			}
 			if index == alen {
 				tb.iarr = append(tb.iarr, v)
+				tb.claimSlot()
 				return
 			}
 		} else if value == LNil {
 			if index == alen-1 {
+				// (an unboxed array cannot hold nil: the slot of the
+				// last element becomes a nil slot behind the array)
 				tb.iarr = tb.iarr[:index]
+				tb.tail++
 				return
 			}
 			if index >= alen {
+				tb.nilSlot(index)
 				return
 			}
 		}
@@ -283,14 +319,17 @@ func (tb *LTable) arraySet(index int, value LValue) {
 			}
 			if index == alen {
 				tb.farr = append(tb.farr, float64(v))
+				tb.claimSlot()
 				return
 			}
 		} else if value == LNil {
 			if index == alen-1 {
 				tb.farr = tb.farr[:index]
+				tb.tail++
 				return
 			}
 			if index >= alen {
+				tb.nilSlot(index)
 				return
 			}
 		}
@@ -298,7 +337,12 @@ func (tb *LTable) arraySet(index int, value LValue) {
 	}
 	alen := len(tb.array)
 	switch {
+	case index >= alen && value == LNil:
+		// nil at or behind the end: GopherLua appends nil slots up to
+		// that position, which are counted instead of stored here
+		tb.nilSlot(index)
 	case index == alen:
+		tb.claimSlot()
 		if alen == 0 && tb.typedOK {
 			switch v := value.(type) {
 			case LInteger:
@@ -326,11 +370,14 @@ func (tb *LTable) arraySet(index int, value LValue) {
 		}
 		tb.array = append(tb.array, value)
 	case index > alen:
-		if value == LNil && tb.typedOK {
-			return
-		}
+		// a value behind the end: the slots in between are stored
 		if tb.array == nil {
 			tb.array = make([]LValue, 0, defaultArrayCap)
+		}
+		tb.storeTail()
+		if alen = len(tb.array); index < alen {
+			tb.array[index] = value
+			return
 		}
 		for i := 0; i < (index - alen); i++ {
 			tb.array = append(tb.array, LNil)
@@ -365,32 +412,19 @@ func (tb *LTable) Len() int {
 	return 0
 }
 
-// Append appends a given LValue to this LTable.
+// Append appends a given LValue to this LTable: behind the last slot of
+// the array part or, if that slot holds nil, behind the last element
+// that is not nil. Both are the position after the border Len reports.
 func (tb *LTable) Append(value LValue) {
 	if value == LNil {
 		return
 	}
-	if tb.akind != arrayKindGeneric {
-		tb.arraySet(tb.arrayLen(), value)
-		return
-	}
-	if len(tb.array) == 0 || tb.array[len(tb.array)-1] != LNil {
-		tb.arraySet(len(tb.array), value)
-	} else {
-		i := len(tb.array) - 2
-		for ; i >= 0; i-- {
-			if tb.array[i] != LNil {
-				break
-			}
-		}
-		tb.array[i+1] = value
-	}
+	tb.arraySet(tb.Len(), value)
 }
 
 // Insert inserts a given LValue at position `i` in this table.
 func (tb *LTable) Insert(i int, value LValue) {
-	alen := tb.arrayLen()
-	if i > alen {
+	if i > tb.slots() {
 		tb.RawSetInt(i, value)
 		return
 	}
@@ -399,6 +433,10 @@ func (tb *LTable) Insert(i int, value LValue) {
 		return
 	}
 	i -= 1
+	if i > tb.arrayLen() {
+		// between the nil slots behind the stored elements
+		tb.storeTail()
+	}
 	switch tb.akind {
 	case arrayKindInt, arrayKindBool:
 		if v, ok := wordValue(tb.akind, value); ok {
@@ -433,10 +471,20 @@ func (tb *LTable) MaxN() int {
 // Remove removes from this table the element at a given position.
 func (tb *LTable) Remove(pos int) LValue {
 	larray := tb.arrayLen()
-	if larray == 0 {
+	slots := larray + tb.tail
+	if slots == 0 {
 		return LNil
 	}
 	i := pos - 1
+	if i >= slots {
+		return LNil
+	}
+	if tb.tail > 0 && (i < 0 || i >= larray) {
+		// the last slot, or one of the nil slots behind the stored
+		// elements, goes away
+		tb.tail--
+		return LNil
+	}
 	oldval := LNil
 	switch tb.akind {
 	case arrayKindInt, arrayKindBool:
@@ -799,7 +847,7 @@ func (tb *LTable) nextKey(i int) (LValue, LValue) {
 // and values, but not the metatable. It is equivalent to creating a table
 // and raw-setting every entry, without the intermediate allocations.
 func (tb *LTable) Clone() *LTable {
-	c := &LTable{Metatable: LNil, akind: tb.akind, typedOK: tb.typedOK, intKeys: tb.intKeys}
+	c := &LTable{Metatable: LNil, akind: tb.akind, typedOK: tb.typedOK, intKeys: tb.intKeys, tail: tb.tail}
 	if len(tb.array) > 0 {
 		c.array = append(make([]LValue, 0, len(tb.array)), tb.array...)
 	}

@@ -509,6 +509,7 @@ var (
 
 	offTableAkind     = unsafe.Offsetof(LTable{}.akind)
 	offTableArray     = unsafe.Offsetof(LTable{}.array)
+	offTableTail      = unsafe.Offsetof(LTable{}.tail)
 	offTableIarr      = unsafe.Offsetof(LTable{}.iarr)
 	offTableFarr      = unsafe.Offsetof(LTable{}.farr)
 	offTableMetatable = unsafe.Offsetof(LTable{}.Metatable)

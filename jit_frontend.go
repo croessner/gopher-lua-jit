@@ -2440,6 +2440,11 @@ func (fe *jitFrontend) setTable(a, b, c int) bool {
 	fe.guard(fe.op(jit.OpEq, jit.TInt, mt, fe.constInt(int64(itabNil))), -1, 0)
 	fe.store(jit.MemArray, storeOp, addr, 0, val)
 	fe.store(jit.MemArrayLen, jit.OpStore64, tp, off+sliceOffLen, newLen)
+	// the element takes the first of the nil slots that the table
+	// counts behind its array part, if there is one (LTable.claimSlot)
+	tail := fe.loadMem(jit.MemArrayLen, jit.OpLoad64, jit.TInt, tp, int64(offTableTail))
+	taken := fe.op(jit.OpNe, jit.TInt, tail, fe.constInt(0))
+	fe.store(jit.MemArrayLen, jit.OpStore64, tp, int64(offTableTail), fe.op(jit.OpSub, jit.TInt, tail, taken))
 	jumpIR(fe.cur, join)
 
 	fe.cur = join
