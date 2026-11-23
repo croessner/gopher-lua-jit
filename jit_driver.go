@@ -252,6 +252,7 @@ func (js *jitState) compile(L *LState, cf *callFrame, jp *jitProto, lp *jitLoop)
 		meta: append([]exitMeta(nil), fe.meta...), consts: append([]LValue(nil), fe.consts...),
 		nslots: fe.nslots, inlined: append([]inlineCall(nil), fe.inlined...),
 		exitCounts: make([]uint32, len(code.Exits)),
+		exitKinds:  make([]uint8, len(code.Exits)),
 		keep:       append([]*LTable(nil), fe.keep...), nativeOps: fe.nativeOps,
 	}
 	if fe.usesEnv {
@@ -566,9 +567,11 @@ func (ls *LState) jitExitNote(u *jitUnit, id int, m *exitMeta, base int, iterati
 		v := ls.reg.array[base+int(m.fbSlot)]
 		switch m.fbWhat {
 		case fbValue:
+			u.noteKind(id, valueKind(v))
 			u.jp.feedback[key] = valueKind(v)
 		case fbArray:
 			if tb, ok := v.(*LTable); ok {
+				u.noteKind(id, tb.akind)
 				u.jp.feedback[key] = tb.akind
 			}
 		case fbField, fbUpval, fbInline, fbNarrow:
@@ -613,5 +616,34 @@ func (ls *LState) jitExitNote(u *jitUnit, id int, m *exitMeta, base int, iterati
 		js.blacklist(lp, "loop runs too few iterations per entry")
 		return
 	}
+	if !m.entry {
+		// A guard that recorded what it met gets another chance with
+		// that knowledge; one that has nothing to learn from would fail
+		// the same way again. Either way the instruction is left to the
+		// interpreter in the end instead of giving up the whole loop.
+		strikes := uint8(1)
+		if m.fbSlot < 0 || u.exitKinds[id] == exitKindsVary {
+			strikes = jitCalloutStrikes
+		}
+		key := feedbackKey{m.fbPC, -1, fbCallout}
+		if u.jp.feedback[key] < jitCalloutStrikes {
+			u.jp.feedback[key] += strikes
+		}
+	}
 	js.logf("discard unit at pc %d: guard at pc %d fails too often", lp.pc, x.PC)
+}
+
+// exitKindsVary marks an exit whose guard met values of several kinds.
+const exitKindsVary = 0xff
+
+// noteKind records the kind of value (or of array) that made the guard
+// of an exit fail. A guard that meets several kinds sits at a site that
+// no single speculation fits.
+func (u *jitUnit) noteKind(id int, kind uint8) {
+	switch seen := u.exitKinds[id]; {
+	case seen == 0:
+		u.exitKinds[id] = kind + 1
+	case seen != kind+1:
+		u.exitKinds[id] = exitKindsVary
+	}
 }

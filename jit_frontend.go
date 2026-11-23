@@ -104,6 +104,9 @@ type exitMeta struct {
 	// that the instruction at the exit consumes (-1 for none): the
 	// interpreter finds the end of such a list through the registry top.
 	top int16
+	// entry marks the checks of the entry block, which belong to no
+	// instruction.
+	entry bool
 }
 
 // Value kinds used for speculation and feedback.
@@ -598,6 +601,7 @@ func (fe *jitFrontend) newExit(kind jit.ExitKind, pc int, m exitMeta) *jit.Exit 
 	m.top = -1
 	m.fbPC = fe.fbBase + int32(pc)
 	m.inl = int16(fe.inl)
+	m.entry = fe.cur == fe.f.Entry
 	if fe.pendingTop >= 0 && pc == fe.pc && (m.kind == emDeopt || m.kind == emUnsupported || m.kind == emInst) {
 		m.top = int16(fe.pendingTop)
 	}
@@ -1364,6 +1368,12 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 	openTop := fe.openTop
 	fe.openTop = -1
 	fe.pendingTop = openTop
+	// an instruction whose native form failed too often is executed by
+	// the interpreter (not in an inlined callee, which has no frame)
+	interpret := fe.inl == 0 && fe.jp.feedback[feedbackKey{fe.fbpc(), -1, fbCallout}] >= jitCalloutStrikes
+	if interpret && interpretable(op) {
+		return fe.generic(pc, op)
+	}
 	switch op {
 	case OP_MOVE, OP_MOVEN:
 		fe.move(A, B)
@@ -1433,7 +1443,7 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 		fe.connect(fe.cur, pc+1+opGetArgSbx(inst), fe.st)
 		return 0, true
 	case OP_EQ, OP_LT, OP_LE:
-		fe.compare(op, A, B, C)
+		fe.compare(op, A, B, C, !interpret)
 		return 0, true
 	case OP_TEST:
 		// if truthy(R(A)) == (C == 0) then skip
@@ -1526,6 +1536,21 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 	return next, false
 }
 
+// interpretable reports whether the interpreter can execute a single
+// instruction with this operation on behalf of compiled code, whatever
+// its operands are.
+func interpretable(op int) bool {
+	switch op {
+	case OP_MOVE, OP_MOVEN, OP_LOADK, OP_LOADNIL, OP_GETUPVAL, OP_GETGLOBAL, OP_GETENV,
+		OP_GETTABLE, OP_GETTABLEKS, OP_SETGLOBAL, OP_SETENV, OP_SETUPVAL, OP_SETTABLE,
+		OP_SETTABLEKS, OP_NEWTABLE, OP_SELF, OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_POW,
+		OP_IDIV, OP_BAND, OP_BOR, OP_BXOR, OP_SHL, OP_SHR, OP_UNM, OP_BNOT, OP_NOT, OP_LEN,
+		OP_CONCAT, OP_CLOSE, OP_CLOSURE, OP_ERRNNIL, OP_TBC:
+		return true
+	}
+	return false
+}
+
 // generic handles an instruction that has no native translation: simple
 // instructions are executed by the interpreter through a callout, others
 // end the compiled region.
@@ -1539,14 +1564,11 @@ func (fe *jitFrontend) generic(pc, op int) (int, bool) {
 	inst := fe.proto.Code[pc]
 	A, B, C := opGetArgA(inst), opGetArgB(inst), opGetArgC(inst)
 	next := fe.info.effects[pc].succs[0]
-	switch op {
-	case OP_MOVE, OP_MOVEN, OP_LOADK, OP_LOADNIL, OP_GETUPVAL, OP_GETGLOBAL, OP_GETENV,
-		OP_GETTABLE, OP_GETTABLEKS, OP_SETGLOBAL, OP_SETENV, OP_SETUPVAL, OP_SETTABLE,
-		OP_SETTABLEKS, OP_NEWTABLE, OP_SELF, OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_POW,
-		OP_IDIV, OP_BAND, OP_BOR, OP_BXOR, OP_SHL, OP_SHR, OP_UNM, OP_BNOT, OP_NOT, OP_LEN,
-		OP_CONCAT, OP_CLOSE, OP_CLOSURE, OP_ERRNNIL, OP_TBC:
+	if interpretable(op) {
 		fe.calloutInst()
 		return next, false
+	}
+	switch op {
 	case OP_SETLIST:
 		if (B != 0 || fe.pendingTop >= 0) && C != 0 {
 			fe.calloutInst()
@@ -1917,16 +1939,18 @@ func (fe *jitFrontend) intAsFloat(v *jit.Value) *jit.Value {
 
 // compare translates OP_EQ, OP_LT and OP_LE followed by a conditional
 // skip of the next instruction.
-func (fe *jitFrontend) compare(op, a, b, c int) {
+func (fe *jitFrontend) compare(op, a, b, c int, native bool) {
 	pc := fe.pc
 	// the next instruction is skipped when result == (A == 0)
 	pcTrue, pcFalse := pc+1, pc+2
 	if a == 0 {
 		pcTrue, pcFalse = pc+2, pc+1
 	}
-	if cond := fe.compareValue(op, b, c); cond != nil {
-		fe.branch(cond, pcTrue, pcFalse)
-		return
+	if native {
+		if cond := fe.compareValue(op, b, c); cond != nil {
+			fe.branch(cond, pcTrue, pcFalse)
+			return
+		}
 	}
 	// generic comparison: the interpreter executes it and reports whether
 	// it skipped the next instruction

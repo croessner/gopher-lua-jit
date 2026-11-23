@@ -135,6 +135,16 @@ to the interpreter.
    incoming edges. Other registers are written back on the edges and stay
    boxed. Translation is repeated until these decisions are stable.
 
+Speculation that does not hold is corrected per site, not per loop. A
+failed guard records what it met (`jitExitNote`); only failures that are
+frequent count. When an exit is taken so often that the unit does not pay
+off, the unit is discarded and the instruction of that exit gets a strike:
+after two strikes (or one, if the guard had nothing to learn from or met
+values of several kinds) the next translation leaves that instruction to
+the interpreter. Only failures that cannot be attributed to an
+instruction, and loops that mostly consist of interpreter work, put a
+loop on the blacklist.
+
 Instructions without a native translation are executed by the interpreter
 through a **callout**: native code returns to Go, the driver writes the
 dirty registers back, runs the ordinary instruction handler, and resumes

@@ -160,9 +160,15 @@ Not compiled (the loop stays in the interpreter):
   `L.Close()` on the state returned by `NewState` unmaps the code (threads
   that are still used afterwards run in the interpreter); the memory of a
   state that is dropped without `Close` is unmapped by a finalizer.
-- **Compilation**: a loop is compiled at most six times (recompilation
-  happens when type guards keep failing); regions are limited to 3000
-  basic blocks. A compiler failure of any kind, including an internal
+- **Compilation**: a loop is compiled at most six times; regions are
+  limited to 3000 basic blocks. Recompilation happens when a guard keeps
+  failing. A guard that fails rarely (less than once per 32 iterations)
+  is tolerated. One that fails often records what it met, so that the
+  next translation fits better; if the instruction it belongs to makes a
+  unit fail again, or meets values of several kinds, or has nothing to
+  learn from (a table key that is not an integer), that one instruction
+  is executed by the interpreter from then on and the rest of the loop
+  stays native. A compiler failure of any kind, including an internal
   panic, only blacklists the loop.
 - **Native run time**: native code returns to Go at least every
   `SafePointInterval` loop iterations (at most 2^24, whatever is

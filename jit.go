@@ -116,6 +116,11 @@ const (
 	// layouts. Only misses that are frequent count (see
 	// jitMissInterval).
 	jitFieldMisses = 3
+	// jitCalloutStrikes is the number of strikes after which the
+	// interpreter executes an instruction on behalf of compiled code:
+	// its guards made a unit fail twice although they recorded what
+	// they met, or once without anything to learn from.
+	jitCalloutStrikes = 2
 	// jitMissInterval is the number of loop iterations per failure of a
 	// guard up to which the failure counts as a wrong speculation; a
 	// guard that fails less often is cheaper than the alternative.
@@ -226,12 +231,13 @@ type feedbackKey struct {
 
 // Kinds of feedback.
 const (
-	fbValue  uint8 = iota // kind of the value in a register
-	fbArray               // array representation of the table in a register
-	fbField               // number of times a field access met another table layout
-	fbUpval               // number of times an upvalue held another kind of value
-	fbInline              // set when inlining the callee of a call did not pay off
-	fbNarrow              // set when a register did not hold the small integer it was narrowed to
+	fbValue   uint8 = iota // kind of the value in a register
+	fbArray                // array representation of the table in a register
+	fbField                // number of times a field access met another table layout
+	fbUpval                // number of times an upvalue held another kind of value
+	fbInline               // set when inlining the callee of a call did not pay off
+	fbNarrow               // set when a register did not hold the small integer it was narrowed to
+	fbCallout              // strikes against the native form of an instruction (slot -1)
 )
 
 // jitUnit is a piece of compiled code.
@@ -258,6 +264,9 @@ type jitUnit struct {
 	callouts  uint64
 
 	exitCounts []uint32
+	// exitKinds remembers, per exit, the kind of value its guard failed
+	// on (plus one), or exitKindsVary once it met several.
+	exitKinds  []uint8
 	entries    uint64
 	iterations uint64 // loop iterations executed natively
 	active     int    // number of running activations

@@ -284,7 +284,13 @@ func TestJITNarrowPrograms(t *testing.T) {
 // instead of sending it back to the interpreter.
 func TestJITNarrowedLoopsStayNative(t *testing.T) {
 	skipWithoutJIT(t)
-	for _, name := range []string{"neighbours", "sieve", "unbounded limit", "limit changes between entries", "near the exact range"} {
+	for _, name := range []string{
+		"neighbours", "sieve", "unbounded limit", "limit changes between entries", "near the exact range",
+		// an instruction that keeps failing (a fractional key, a key
+		// far beyond the array part) is left to the interpreter; the
+		// loop around it stays compiled
+		"fractional start", "fractional step", "beyond 31 bits",
+	} {
 		_, st := runChunk(jitTestOptions(Lua51, 5), jitNarrowPrograms[name])
 		if st.Compiled == 0 || st.Blacklisted != 0 || st.Invalidated > 3 {
 			t.Errorf("%s: loops do not stay native: %s", name, st)

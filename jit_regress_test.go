@@ -1349,3 +1349,77 @@ func TestJITRefsUnderGC(t *testing.T) {
 	}
 	close(done)
 }
+
+// jitFailingInstructionPrograms contain one instruction whose native
+// form cannot work (the comment names it) inside a loop that is worth
+// compiling otherwise.
+var jitFailingInstructionPrograms = map[string]string{
+	// a key that is not an integer
+	"fractional key": `
+		local t = {}
+		for i = 1, 40 do t[i] = i end
+		local s = 0
+		for x = 1.5, 400 do
+			s = s + (t[x] or 0.25)
+			for j = 1, 20 do s = s + j * x end
+		end
+		return s`,
+	// stores far beyond the array part
+	"sparse store": `
+		local t, s = {}, 0
+		for i = 1, 400 do
+			t[i + 70000000] = i
+			for j = 1, 20 do s = s + j * i end
+		end
+		return s`,
+	// a register that changes its type on every iteration
+	"alternating types": `
+		local values = {1, "2", 3.5, "4"}
+		local s = 0
+		for i = 1, 400 do
+			local v = values[i % 4 + 1]
+			s = s + v * 2 + i
+			for j = 1, 20 do s = s + j * i end
+		end
+		return s`,
+	// arithmetic on a table with a metamethod
+	"metamethod operand": `
+		local v = setmetatable({n = 1}, {__add = function(a, b) return (type(a) == "table" and a.n or a) + (type(b) == "table" and b.n or b) end})
+		local s = 0
+		for i = 1, 400 do
+			s = s + (v + i) * 2
+			for j = 1, 20 do s = s + j * i end
+		end
+		return s`,
+	// several instructions of that kind in one loop
+	"several failing instructions": `
+		local values = {1, "2", 3.5, "4"}
+		local t, s = {}, 0
+		for i = 1, 400 do
+			local v = values[i % 4 + 1]
+			s = s + v * 2
+			t[i + 70000000] = v
+			s = s + (t[i + 0.5] or 1) - v
+			for j = 1, 20 do s = s + j * i end
+		end
+		return s`,
+}
+
+// TestJITFailingInstructionKeepsLoop checks that an instruction whose
+// native form fails all the time is handed to the interpreter while the
+// loop around it stays compiled.
+func TestJITFailingInstructionKeepsLoop(t *testing.T) {
+	skipWithoutJIT(t)
+	for name, src := range jitFailingInstructionPrograms {
+		name, src := name, src
+		t.Run(name, func(t *testing.T) {
+			checkJITMatchesInterpreter(t, name, src)
+			for _, version := range []LanguageVersion{Lua51, Lua55} {
+				_, st := runChunk(jitTestOptions(version, 5), src)
+				if st.LiveUnits == 0 || st.Blacklisted != 0 || st.Invalidated > 4 {
+					t.Errorf("%v: the loop was given up: %s", version, st)
+				}
+			}
+		})
+	}
+}
