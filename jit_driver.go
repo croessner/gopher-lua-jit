@@ -325,14 +325,18 @@ func exitValue(e *jit.ExitEntry, frame []uint64) uint64 {
 	return uint64(e.Const)
 }
 
-// loadBoxed reads the value at an address that native code computed: an
+// loadBoxed reads the value at the address a snapshot entry holds: an
 // element of the array part or the value of a string-keyed entry of a
 // table that is reachable from the registers. The table has not been
-// modified since, because no Go code ran in between.
-//
-//go:nocheckptr
-func loadBoxed(addr uintptr) LValue {
-	return *(*LValue)(unsafe.Pointer(addr))
+// modified since native code computed the address, because no Go code
+// ran in between. (The word of the context frame is read as a pointer
+// instead of converting an integer to one.)
+func loadBoxed(e *jit.ExitEntry, frame []uint64) LValue {
+	word := &frame[jit.CtxSpill/8+e.Loc.N]
+	if e.Loc.Kind == jit.LocReg {
+		word = &frame[jit.CtxSaveG/8+e.Loc.N]
+	}
+	return *(*LValue)(*(*unsafe.Pointer)(unsafe.Pointer(word)))
 }
 
 // jitApply writes the registers described by a snapshot back into the
@@ -356,7 +360,7 @@ func (ls *LState) jitApply(u *jitUnit, entries []jit.ExitEntry, frame []uint64, 
 		case tagAlias:
 			boxed = append(boxed, arr[base+int(e.Const)])
 		case tagRef:
-			boxed = append(boxed, loadBoxed(uintptr(exitValue(e, frame))))
+			boxed = append(boxed, loadBoxed(e, frame))
 		}
 	}
 	bi := 0
