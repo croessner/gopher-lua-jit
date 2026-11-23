@@ -1,5 +1,11 @@
 # gopher-lua-jit
 
+> **Thank you, Yusuke Inuzuka.** This project stands on
+> [GopherLua](https://github.com/yuin/gopher-lua), created by Yusuke Inuzuka
+> and maintained for many years together with its contributors. The virtual
+> machine design, the Go API and most of the Lua 5.1 implementation here are
+> their work; everything in this repository is an extension of it.
+
 A Lua runtime for Go, derived from [GopherLua](https://github.com/yuin/gopher-lua),
 with two additions:
 
