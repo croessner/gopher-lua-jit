@@ -71,6 +71,9 @@ func (fe *jitFrontend) selfMethod(a, b, c int) bool {
 	if !ok {
 		return false
 	}
+	if _, isString := fe.peek(home).(LString); isString {
+		return fe.stringMethod(a, b, home, name)
+	}
 	obj, isTable := fe.peek(home).(*LTable)
 	site := feedbackKey{fe.fbpc(), int16(locSlot(home)), fbField}
 	if !isTable || fe.jp.feedback[site] >= jitFieldMisses {
@@ -147,6 +150,39 @@ func (fe *jitFrontend) selfMethod(a, b, c int) bool {
 				fe.guardMetatable(tb)
 			}
 		}
+	}
+	fe.move(a+1, b)
+	fe.st[a] = slotState{kind: skConst, src: fe.constIndex(fn)}
+	return true
+}
+
+// stringMethod translates R(a+1) := R(b); R(a) := R(b)[name] for a string
+// in R(b): the method is the function that the __index table of the
+// metatable of strings holds under that name. The code depends on the
+// metatable of strings not being replaced and on the two tables keeping
+// their functions.
+func (fe *jitFrontend) stringMethod(a, b, home int, name string) bool {
+	g := fe.L.G
+	mt, _ := g.builtinMts[int(LTString)].(*LTable)
+	if mt == nil {
+		return false
+	}
+	index, _ := mt.RawGetString("__index").(*LTable)
+	if index == nil {
+		return false
+	}
+	fn, _ := index.RawGetString(name).(*LFunction)
+	if fn == nil {
+		return false
+	}
+	fe.guard(fe.op(jit.OpEq, jit.TInt, fe.slotItab(home), fe.constInt(int64(itabString))), home, fbValue)
+	gen := fe.load(jit.OpLoad64, jit.TInt, fe.constInt(int64(uintptr(unsafe.Pointer(&g.builtinMtGen)))), 0)
+	fe.guard(fe.op(jit.OpEq, jit.TInt, gen, fe.constInt(int64(g.builtinMtGen))), -1, 0)
+	mt.watchedKeys = true
+	fe.guardVersion(mt)
+	if index != mt {
+		index.watchedKeys = true
+		fe.guardVersion(index)
 	}
 	fe.move(a+1, b)
 	fe.st[a] = slotState{kind: skConst, src: fe.constIndex(fn)}

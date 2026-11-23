@@ -203,8 +203,11 @@ type Global struct {
 	Global        *LTable
 
 	builtinMts map[int]LValue
-	tempFiles  []*os.File
-	gccount    int32
+	// builtinMtGen changes whenever the metatable of a basic type is
+	// set: compiled code that resolved a string method depends on it.
+	builtinMtGen uint64
+	tempFiles    []*os.File
+	gccount      int32
 
 	// jit is the JIT compiler state shared by all threads of this state
 	// (nil when the JIT is disabled or unsupported on this platform).
@@ -267,3 +270,10 @@ type LChannel chan LValue
 
 func (ch LChannel) String() string   { return fmt.Sprintf("channel: %p", ch) }
 func (ch LChannel) Type() LValueType { return LTChannel }
+
+// setBuiltinMetatable sets the metatable shared by all values of a
+// basic type.
+func (g *Global) setBuiltinMetatable(typ LValueType, mt LValue) {
+	g.builtinMts[int(typ)] = mt
+	g.builtinMtGen++
+}

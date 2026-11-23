@@ -1710,6 +1710,17 @@ func (fe *jitFrontend) constField(a, b, c int) bool {
 	return true
 }
 
+// refTo makes register a refer to the boxed value at an address; sample
+// is a value like the ones that will be found there.
+func (fe *jitFrontend) refTo(a int, addr *jit.Value, sample LValue) {
+	fe.st[a] = slotState{kind: skRef, val: addr, src: int32(a)}
+	if sample != nil {
+		fe.refPeek[int32(a)] = sample
+	} else {
+		delete(fe.refPeek, int32(a))
+	}
+}
+
 // move translates R(a) := R(b).
 func (fe *jitFrontend) move(a, b int) {
 	s := fe.st[b]
@@ -1939,6 +1950,9 @@ func (fe *jitFrontend) compareValue(op, b, c int) *jit.Value {
 			}
 			return fe.constInt(0)
 		}
+	}
+	if op == OP_EQ && fe.isString(b) && fe.isString(c) {
+		return fe.stringEq(b, c)
 	}
 	if op == OP_EQ && b&opBitRk == 0 && c&opBitRk == 0 {
 		// comparisons against nil and between booleans
@@ -2437,9 +2451,9 @@ func (fe *jitFrontend) getUpval(a, idx int) bool {
 	}
 	value := uv.Value()
 	kind := valueKind(value)
-	if own < 0 && kind != vkInt && kind != vkFloat && !constValue(value) {
-		return false
-	}
+	// numbers are unboxed and functions and tables become constants;
+	// any other value is referred to where it is
+	byRef := kind != vkInt && kind != vkFloat && !constValue(value)
 	cells := fe.load(jit.OpLoad64, jit.TInt, fe.closureAddr(), int64(offFnUpvalues)+sliceOffData)
 	cell := fe.load(jit.OpLoad64, jit.TInt, cells, int64(idx)*8)
 	closed := fe.load(jit.OpLoad8, jit.TInt, cell, int64(offUvClosed))
@@ -2462,10 +2476,18 @@ func (fe *jitFrontend) getUpval(a, idx int) bool {
 		// they belong to wait for a call to return)
 		fe.guard(fe.op(jit.OpLt, jit.TInt, rel, fe.constInt(0)), a, fbUpval)
 		addr := fe.op(jit.OpAdd, jit.TInt, fe.f.RegBase(), fe.op(jit.OpShl, jit.TInt, rel, fe.constInt(4)))
+		if byRef {
+			fe.refTo(a, addr, value)
+			return true
+		}
 		itab = fe.load(jit.OpLoad64, jit.TInt, addr, 0)
 		data = fe.load(jit.OpLoad64, jit.TInt, addr, 8)
 	} else {
 		fe.guard(fe.op(jit.OpNe, jit.TInt, closed, fe.constInt(0)), a, fbUpval)
+		if byRef {
+			fe.refTo(a, fe.op(jit.OpAdd, jit.TInt, cell, fe.constInt(int64(offUvValue))), value)
+			return true
+		}
 		itab = fe.load(jit.OpLoad64, jit.TInt, cell, int64(offUvValue))
 		data = fe.load(jit.OpLoad64, jit.TInt, cell, int64(offUvValue)+8)
 	}
@@ -2623,15 +2645,7 @@ func (fe *jitFrontend) length(a, b int) bool {
 	if !ok {
 		return false
 	}
-	setLen := func(n *jit.Value) {
-		if fe.L.lang55 {
-			fe.set(a, skInt, n)
-		} else {
-			f := fe.op(jit.OpIntToFloat, jit.TFloat, n)
-			fe.setTwin(f, n, twinWideBits)
-			fe.set(a, skFloat, f)
-		}
-	}
+	setLen := func(n *jit.Value) { fe.setIntResult(a, n, twinWideBits) }
 	if valueKind(fe.peek(home)) == vkString {
 		// the length of a string is the second word of its header
 		fe.guard(fe.op(jit.OpEq, jit.TInt, fe.slotItab(home), fe.constInt(int64(itabString))), home, fbValue)

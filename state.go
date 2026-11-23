@@ -2234,7 +2234,7 @@ func (ls *LState) SetMetatable(obj LValue, mt LValue) {
 	case *LUserData:
 		v.Metatable = mt
 	default:
-		ls.G.builtinMts[int(obj.Type())] = mt
+		ls.G.setBuiltinMetatable(obj.Type(), mt)
 	}
 }
 

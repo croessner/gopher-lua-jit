@@ -86,7 +86,9 @@ Compiled natively inside hot loops (both profiles):
   holds a number (`count = count + 1`): an existing global is a field of
   the environment table and is accessed like one. A global that does not
   exist is looked up by the interpreter, which may consult a metatable;
-- reads of **upvalues** that hold numbers, functions or tables. A table
+- reads of **upvalues**: numbers are unboxed, functions and tables are
+  constants, any other value (a string, a boolean, nil) is used where it
+  is stored. A table
   found in an upvalue or in a global variable (a module-level `local t`
   used inside functions, a global `config`) is indexed natively like a
   table in a local variable: array elements, fields, length, methods and
@@ -108,6 +110,15 @@ Compiled natively inside hot loops (both profiles):
   without metatable advances natively, every other iterator (`pairs`,
   custom iterators) is called through the interpreter once per iteration;
 - truth tests and comparisons with `nil` on arbitrary values;
+- **string equality** (`==`, `~=`): strings of different length differ,
+  strings that share their bytes are equal, and the bytes of any other
+  pair are compared in native code (up to 64 bytes; longer ones by the
+  interpreter);
+- **string methods**: `s:name(...)` finds the function in the `string`
+  table without the interpreter; `s:byte(i)` / `string.byte(s, i)` with a
+  position inside the string and `s:len()` / `string.len(s)` are
+  translated in place, other string functions are called through the
+  interpreter;
 - `math.sqrt`, `math.floor`, `math.ceil`, `math.abs`, `math.max` and
   `math.min` (up to four numbers of one kind), `type` and `tonumber` of a
   number, whether they are called through the unmodified library tables
@@ -120,7 +131,8 @@ Compiled natively inside hot loops (both profiles):
 Executed by the interpreter on behalf of native code (a *callout*; correct
 but with a fixed overhead of a few dozen nanoseconds each):
 
-- string operations other than the length, stores of strings, tables or
+- string operations other than length, equality and `byte`; ordering
+  comparisons of strings; stores of strings, tables or
   functions into tables, writes to upvalues, table creation, closures,
   metamethods;
 - calls of Go functions, and calls of Lua functions that are not inlined

@@ -370,6 +370,12 @@ func (g *progGen) expr(depth int) string {
 		return "t[mx(1, mn(fl(" + l + "), #t))]"
 	case 20:
 		return "(g1 + (tonumber(g2) or 1))"
+	case 21:
+		return "(names[i % 4 + 1] == " + []string{"'alpha'", "names[(i + 1) % 4 + 1]", "'x'", "recs[i % 3 + 1].tag"}[g.rng.Intn(4)] + " and " + l + " or " + r + ")"
+	case 22:
+		return "(names[i % 4 + 1]:byte(" + []string{"1", "i % 5 + 1", "fl(" + l + ") % 6"}[g.rng.Intn(3)] + ") or 0)"
+	case 23:
+		return "(names[i % 4 + 1]:len() + string.len(recs[i % 3 + 1].tag))"
 	case 0:
 		return "math.floor(" + l + ")"
 	case 1:

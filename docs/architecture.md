@@ -193,6 +193,14 @@ Several kinds of speculation go beyond registers (`jit_frontend.go`,
   like a home slot or a reference: its type and data words are known at
   compile time, so the type check of a table access folds away and the
   access itself uses the same code as for a table in a register.
+- **Strings.** A string in a register is a boxed value like a table: the
+  code checks its type word and reads the address and length of its
+  bytes from the string header. Equality compares the lengths, then the
+  addresses, then (for short strings) the bytes in a small loop of its
+  own. A method of a string is the function the `__index` table of the
+  string metatable holds; the code depends on a counter that changes
+  whenever the metatable of a basic type is set, and on the version
+  counters of the two tables.
 - **Methods.** `obj:name()` resolves at compile time to the function the
   object's class provides. The code checks that the object still has
   exactly the string keys it had (so the name is not among them) and the
