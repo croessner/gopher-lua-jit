@@ -292,6 +292,7 @@ func (ls *LState) jitLeave(th *jitThread) {
 	u := th.acts[len(th.acts)-1]
 	th.acts[len(th.acts)-1] = nil
 	th.acts = th.acts[:len(th.acts)-1]
+	th.lazy[len(th.acts)] = jitLazy{}
 	u.active--
 	if u.dead && u.active == 0 {
 		ls.G.jit.release(u)
@@ -340,8 +341,52 @@ func loadBoxed(e *jit.ExitEntry, frame []uint64) LValue {
 	return *(*LValue)(*(*unsafe.Pointer)(unsafe.Pointer(word)))
 }
 
+// jitSettle writes back what the callout of the native activation at
+// the given depth left unwritten, if that is still to be done. It is
+// called when the interpreter takes over the frame.
+func (ls *LState) jitSettle(th *jitThread, depth int) {
+	if l := th.lazy[depth]; l.entries != nil {
+		th.lazy[depth] = jitLazy{}
+		ls.jitApplyLate(l.u, l.entries, l.frame, l.base)
+	}
+}
+
+// jitSyncLocals makes the registers of every function of this thread
+// that waits for a callout complete. Debuggers call it before they look
+// at local variables or change them.
+func (ls *LState) jitSyncLocals() {
+	if th := ls.jit; th != nil {
+		for depth := range th.acts {
+			ls.jitSettle(th, depth)
+		}
+	}
+}
+
+// jitApplyLate writes back the entries of a callout snapshot that
+// jitApply skipped (tagLate): unboxed numbers and booleans.
+func (ls *LState) jitApplyLate(u *jitUnit, entries []jit.ExitEntry, frame []uint64, base int) {
+	arr := ls.reg.array
+	for i := range entries {
+		e := &entries[i]
+		if e.Tag&tagLate == 0 {
+			continue
+		}
+		raw := exitValue(e, frame)
+		var v LValue
+		switch e.Tag &^ tagLate {
+		case tagInt:
+			v = ls.alloc.LInteger2I(LInteger(int64(raw)))
+		case tagFloat:
+			v = ls.alloc.LNumber2I(LNumber(math.Float64frombits(raw)))
+		default:
+			v = LBool(raw != 0)
+		}
+		arr[base+e.Slot] = v
+	}
+}
+
 // jitApply writes the registers described by a snapshot back into the
-// registry.
+// registry, except for the entries of a callout that are marked as late.
 func (ls *LState) jitApply(u *jitUnit, entries []jit.ExitEntry, frame []uint64, base int) {
 	if len(entries) == 0 {
 		return
@@ -371,6 +416,9 @@ func (ls *LState) jitApply(u *jitUnit, entries []jit.ExitEntry, frame []uint64, 
 	bi := 0
 	for i := range entries {
 		e := &entries[i]
+		if e.Tag&tagLate != 0 {
+			continue
+		}
 		raw := exitValue(e, frame)
 		var v LValue
 		switch e.Tag {
@@ -417,6 +465,7 @@ func (ls *LState) jitRun(cf *callFrame, u *jitUnit, baseframe *callFrame) int {
 	}
 	if depth == len(th.frames) {
 		th.frames = append(th.frames, nil)
+		th.lazy = append(th.lazy, jitLazy{})
 	}
 	frame := th.frames[depth]
 	if len(frame) < u.code.FrameWords {
@@ -484,7 +533,13 @@ loop:
 			inst := cf.Fn.Proto.Code[pc]
 			cf.Pc = pc + 1
 			localGen := js.localGen
+			if m.late {
+				// some registers are written back only if native code
+				// is not resumed below
+				th.lazy[depth] = jitLazy{u, x.Entries, frame, base}
+			}
 			if jumpTable[int(inst>>26)](ls, inst, baseframe) == 1 {
+				ls.jitSettle(th, depth)
 				result = 1
 				break loop
 			}
@@ -500,6 +555,7 @@ loop:
 					// frame of a tail-called yield is already gone, so
 					// the current frame alone does not tell): the
 					// interpreter loops of this thread must unwind
+					ls.jitSettle(th, depth)
 					result = 1
 					break loop
 				}
@@ -509,10 +565,12 @@ loop:
 				// the interpreter continues: a new frame was pushed, the
 				// unit was discarded while the callout ran, a debugger
 				// changed a local variable (the registry is up to date
-				// after a callout, the unboxed copies are not), or the
-				// environment of the function was replaced
+				// once the callout is settled, the unboxed copies are
+				// not), or the environment of the function was replaced
+				ls.jitSettle(th, depth)
 				break loop
 			}
+			th.lazy[depth] = jitLazy{}
 			if cf.Pc == pc+2 {
 				frame[jit.CtxResult/8] = 1
 			} else {

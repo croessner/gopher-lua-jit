@@ -277,12 +277,25 @@ type jitUnit struct {
 type jitThread struct {
 	// frames are context frames reused by nesting depth.
 	frames [][]uint64
+	// lazy holds, by nesting depth, the registers a running callout has
+	// not written back.
+	lazy []jitLazy
 	// acts is the stack of running native activations.
 	acts []*jitUnit
 	// skipHeader is set when native code handed the instruction at a loop
 	// header back to the interpreter: the loop is not entered again
 	// before the interpreter has executed that instruction.
 	skipHeader bool
+}
+
+// jitLazy describes the registers of a native activation that the
+// callout it is waiting for did not write back: its numbers that the
+// instruction does not touch. entries is nil while there are none.
+type jitLazy struct {
+	u       *jitUnit
+	entries []jit.ExitEntry
+	frame   []uint64
+	base    int
 }
 
 var jitTables struct {

@@ -146,9 +146,18 @@ instruction, and loops that mostly consist of interpreter work, put a
 loop on the blacklist.
 
 Instructions without a native translation are executed by the interpreter
-through a **callout**: native code returns to Go, the driver writes the
-dirty registers back, runs the ordinary instruction handler, and resumes
-native code. Calls of Lua functions that are not inlined are callouts too
+through a **callout**: native code returns to Go, the driver writes
+registers back, runs the ordinary instruction handler, and resumes native
+code. Writing a number back allocates, so the driver only writes the
+registers that the instruction reads; the entries of the snapshot for
+unboxed registers the instruction neither reads nor writes are marked
+*late*. Late entries are applied if the interpreter ends up with the
+frame after all (the instruction pushed a frame that is still running,
+yielded, or the unit was invalidated meanwhile) and when a debugger looks
+at or changes local variables while the instruction runs; if native code
+is resumed they are dropped, because it still holds the values. Registers
+that a closure captured are always written back: any function the
+instruction calls can read them. Calls of Lua functions that are not inlined are callouts too
 (the callee runs in a nested interpreter loop and may itself enter native
 code).
 

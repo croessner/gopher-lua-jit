@@ -72,6 +72,10 @@ const (
 	tagRef   // boxed copy of the value at an address
 )
 
+// tagLate marks an entry of a callout that is written back only if the
+// interpreter keeps the frame after the instruction (see calloutInst).
+const tagLate uint8 = 0x80
+
 // Kinds of exits as seen by the driver.
 const (
 	emDeopt       uint8 = iota // failed guard or unsupported code
@@ -107,6 +111,9 @@ type exitMeta struct {
 	// entry marks the checks of the entry block, which belong to no
 	// instruction.
 	entry bool
+	// late marks a callout whose snapshot has entries that are only
+	// written back when native code is not resumed (tagLate).
+	late bool
 }
 
 // Value kinds used for speculation and feedback.
@@ -694,6 +701,9 @@ func (fe *jitFrontend) exitBlockKind(kind uint8) {
 // markFlushed updates st after the registers of snap were written back.
 func markFlushed(st []slotState, snap []jit.SnapEntry) {
 	for _, e := range snap {
+		if e.Tag&tagLate != 0 {
+			continue // not written back: still stale
+		}
 		s := &st[e.Slot]
 		switch s.kind {
 		case skInt, skFloat, skBool:
@@ -727,13 +737,29 @@ func (fe *jitFrontend) calloutInst() {
 	}
 	x := fe.newExit(jit.ExitCallout, fe.pc, exitMeta{kind: emInst, fbSlot: -1})
 	x.Snap = fe.snapshot(fe.cur, fe.st, fe.pc, nil)
+	// Writing an unboxed number back allocates. The instruction only
+	// sees its operands, and native code keeps its own copies, so the
+	// numbers in registers that the instruction neither reads nor
+	// writes are written back only if the interpreter ends up with the
+	// frame: when the instruction does not return here, or when a
+	// debugger looks at the registers while it runs. (A register that a
+	// closure captured can be read by any function the instruction
+	// calls.)
+	e := &fe.info.effects[fe.pc]
+	for i := range x.Snap {
+		s := &x.Snap[i]
+		if (s.Tag == tagInt || s.Tag == tagFloat || s.Tag == tagBool) &&
+			!e.reads.has(s.Slot) && !e.writes.has(s.Slot) && !fe.info.escaped.has(s.Slot) {
+			s.Tag |= tagLate
+			fe.meta[x.Data].late = true
+		}
+	}
 	fe.f.NewValue(fe.cur, jit.OpCallout, jit.TInt, 0).Exit = x
 	markFlushed(fe.st, x.Snap)
 	fe.callouts++
 	// whatever the instruction wrote is now boxed in its home slot, and
 	// references into tables that were not written back are dead: the
 	// interpreter may have changed the tables
-	e := &fe.info.effects[fe.pc]
 	for slot := range fe.st {
 		if e.writes.has(slot) || fe.info.escaped.has(slot) || fe.st[slot].kind == skRef {
 			fe.st[slot] = slotState{}

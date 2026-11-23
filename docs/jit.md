@@ -129,7 +129,10 @@ Compiled natively inside hot loops (both profiles):
   is compiled.
 
 Executed by the interpreter on behalf of native code (a *callout*; correct
-but with a fixed overhead of a few dozen nanoseconds each):
+but with a fixed overhead of a few dozen nanoseconds each). Before a
+callout only the registers its instruction uses are written back; the
+other numbers of the loop stay in machine registers, so a loop with
+callouts allocates less than the interpreter does for the same code:
 
 - string operations other than length, equality and `byte`; ordering
   comparisons of strings; stores of strings, tables or
@@ -208,9 +211,10 @@ not been verified:
 - CPU profiles attribute native code to "external code"; Go stack traces
   taken while native code runs do not show Lua frames.
 - Debugger access to a frame that runs native code: `debug.setlocal` /
-  `L.SetLocal` take effect (the frame continues in the interpreter), but
-  `debug.getlocal` / `L.GetLocal` may show an outdated value for a local
-  that is not read again later, because native code only writes back the
+  `L.SetLocal` take effect (the frame continues in the interpreter), and
+  `debug.getlocal` / `L.GetLocal` first make the registers of the frame
+  complete. They may still show an outdated value for a local that is
+  not read again later, because native code only writes back the
   variables that are still live.
 - Compiled code is per state. A pool of states compiles hot loops once per
   state.
