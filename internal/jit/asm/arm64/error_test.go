@@ -154,7 +154,7 @@ func TestFirstErrorWinsAndReset(t *testing.T) {
 	a.Ret()
 
 	if got := mustWords(t, a); len(got) != 1 || got[0] != wordRet {
-		t.Errorf("after Reset: got %s, want %08x", formatWords(got), wordRet)
+		t.Errorf("after Reset: got %s, want %08x", formatWords(got), uint32(wordRet))
 	}
 }
 
