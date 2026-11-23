@@ -86,7 +86,38 @@ const (
 	arrayKindGeneric uint8 = iota
 	arrayKindInt
 	arrayKindFloat
+	// arrayKindBool stores booleans as the words 0 and 1 in the same
+	// slice as arrayKindInt.
+	arrayKindBool
 )
+
+// wordValue converts value to an element of the word array (iarr) of an
+// array part of the given kind. It reports false if the value does not
+// fit that kind.
+func wordValue(kind uint8, value LValue) (int64, bool) {
+	switch v := value.(type) {
+	case LInteger:
+		if kind == arrayKindInt {
+			return int64(v), true
+		}
+	case LBool:
+		if kind == arrayKindBool {
+			if v {
+				return 1, true
+			}
+			return 0, true
+		}
+	}
+	return 0, false
+}
+
+// boxWord converts an element of the word array back to a value.
+func (tb *LTable) boxWord(w int64) LValue {
+	if tb.akind == arrayKindBool {
+		return LBool(w != 0)
+	}
+	return boxInt(w)
+}
 
 type lValueArraySorter struct {
 	L      *LState
@@ -178,7 +209,7 @@ func (tb *LTable) normKey(key LValue) LValue {
 // arrayLen returns the physical length of the array part.
 func (tb *LTable) arrayLen() int {
 	switch tb.akind {
-	case arrayKindInt:
+	case arrayKindInt, arrayKindBool:
 		return len(tb.iarr)
 	case arrayKindFloat:
 		return len(tb.farr)
@@ -189,8 +220,8 @@ func (tb *LTable) arrayLen() int {
 // arrayGet returns the element at the 0-based index of the array part.
 func (tb *LTable) arrayGet(index int) LValue {
 	switch tb.akind {
-	case arrayKindInt:
-		return boxInt(tb.iarr[index])
+	case arrayKindInt, arrayKindBool:
+		return tb.boxWord(tb.iarr[index])
 	case arrayKindFloat:
 		return LNumber(tb.farr[index])
 	}
@@ -200,10 +231,10 @@ func (tb *LTable) arrayGet(index int) LValue {
 // genericize converts an unboxed array part to the generic representation.
 func (tb *LTable) genericize() {
 	switch tb.akind {
-	case arrayKindInt:
+	case arrayKindInt, arrayKindBool:
 		arr := make([]LValue, len(tb.iarr), cap(tb.iarr)+1)
 		for i, v := range tb.iarr {
-			arr[i] = boxInt(v)
+			arr[i] = tb.boxWord(v)
 		}
 		tb.array = arr
 		tb.iarr = nil
@@ -222,15 +253,15 @@ func (tb *LTable) genericize() {
 // or converting the array part as needed.
 func (tb *LTable) arraySet(index int, value LValue) {
 	switch tb.akind {
-	case arrayKindInt:
+	case arrayKindInt, arrayKindBool:
 		alen := len(tb.iarr)
-		if v, ok := value.(LInteger); ok {
+		if v, ok := wordValue(tb.akind, value); ok {
 			if index < alen {
-				tb.iarr[index] = int64(v)
+				tb.iarr[index] = v
 				return
 			}
 			if index == alen {
-				tb.iarr = append(tb.iarr, int64(v))
+				tb.iarr = append(tb.iarr, v)
 				return
 			}
 		} else if value == LNil {
@@ -281,6 +312,12 @@ func (tb *LTable) arraySet(index int, value LValue) {
 				tb.farr[0] = float64(v)
 				tb.array = nil
 				tb.akind = arrayKindFloat
+				return
+			case LBool:
+				tb.iarr = make([]int64, 1, typedCap(cap(tb.array)))
+				tb.iarr[0], _ = wordValue(arrayKindBool, v)
+				tb.array = nil
+				tb.akind = arrayKindBool
 				return
 			}
 		}
@@ -363,11 +400,11 @@ func (tb *LTable) Insert(i int, value LValue) {
 	}
 	i -= 1
 	switch tb.akind {
-	case arrayKindInt:
-		if v, ok := value.(LInteger); ok {
+	case arrayKindInt, arrayKindBool:
+		if v, ok := wordValue(tb.akind, value); ok {
 			tb.iarr = append(tb.iarr, 0)
 			copy(tb.iarr[i+1:], tb.iarr[i:])
-			tb.iarr[i] = int64(v)
+			tb.iarr[i] = v
 			return
 		}
 		tb.genericize()
@@ -402,14 +439,14 @@ func (tb *LTable) Remove(pos int) LValue {
 	i := pos - 1
 	oldval := LNil
 	switch tb.akind {
-	case arrayKindInt:
+	case arrayKindInt, arrayKindBool:
 		switch {
 		case i >= larray:
 		case i == larray-1 || i < 0:
-			oldval = boxInt(tb.iarr[larray-1])
+			oldval = tb.boxWord(tb.iarr[larray-1])
 			tb.iarr = tb.iarr[:larray-1]
 		default:
-			oldval = boxInt(tb.iarr[i])
+			oldval = tb.boxWord(tb.iarr[i])
 			copy(tb.iarr[i:], tb.iarr[i+1:])
 			tb.iarr = tb.iarr[:larray-1]
 		}
@@ -667,9 +704,9 @@ func (tb *LTable) RawGetString(key string) LValue {
 // ForEach iterates over this table of elements, yielding each in turn to a given function.
 func (tb *LTable) ForEach(cb func(LValue, LValue)) {
 	switch tb.akind {
-	case arrayKindInt:
+	case arrayKindInt, arrayKindBool:
 		for i := 0; i < len(tb.iarr); i++ {
-			cb(tb.intKey(i+1), boxInt(tb.iarr[i]))
+			cb(tb.intKey(i+1), tb.boxWord(tb.iarr[i]))
 		}
 	case arrayKindFloat:
 		for i := 0; i < len(tb.farr); i++ {

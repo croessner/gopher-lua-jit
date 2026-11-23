@@ -487,3 +487,109 @@ func TestJITFieldLoopIsNative(t *testing.T) {
 		}
 	}
 }
+
+// jitBoolArrayPrograms exercise arrays of booleans, which are stored
+// unboxed like number arrays.
+var jitBoolArrayPrograms = map[string]string{
+	"sieve": `
+		local n = 2000
+		local flags = {}
+		for i = 1, n do flags[i] = true end
+		local count = 0
+		for i = 2, n do
+			if flags[i] then
+				count = count + 1
+				for j = i + i, n, i do flags[j] = false end
+			end
+		end
+		return count, #flags, flags[1], flags[4], flags[n]`,
+	"boolean array changes kind": `
+		local t = {}
+		for i = 1, 100 do t[i] = i % 3 == 0 end
+		local c = 0
+		for i = 1, #t do if t[i] then c = c + 1 end end
+		t[50] = 7
+		for i = 1, #t do if t[i] == true then c = c + 1 elseif t[i] == 7 then c = c + 1000 end end
+		t[#t] = nil
+		t[#t + 1] = "s"
+		return c, #t, type(t[50]), t[3], t[4], t[#t]`,
+	"boolean array through the table library": `
+		local t = {}
+		for i = 1, 50 do t[i] = i % 2 == 0 end
+		table.insert(t, 1, true)
+		table.insert(t, false)
+		local removed = table.remove(t, 2)
+		local n = 0
+		for _, v in ipairs(t) do if v then n = n + 1 end end
+		local copy = {}
+		for k, v in pairs(t) do copy[#copy + 1] = tostring(v) end
+		return n, #t, removed, table.concat(copy, ""):sub(1, 30), select("#", unpack and unpack(t) or table.unpack(t))`,
+	"booleans from comparisons": `
+		local t, s = {}, 0
+		for i = 1, 300 do t[i] = i * i % 7 < 3 end
+		for i = 1, 300 do if t[i] then s = s + i end if not t[i] then s = s - 1 end end
+		return s`,
+}
+
+// jitVariableStepPrograms exercise numeric for loops whose step is not a
+// constant.
+var jitVariableStepPrograms = map[string]string{
+	"step changes between entries": `local s = 0 for i = 2, 40 do for j = i + i, 400, i do s = s + j end end return s`,
+	"step changes direction": `
+		local s = 0
+		for round = 1, 60 do
+			local step = (round % 2 == 0) and 3 or -3
+			local from, to = 1, 90
+			if step < 0 then from, to = 90, 1 end
+			for j = from, to, step do s = s + j * round end
+		end
+		return s`,
+	"float steps": `local s = 0 for i = 1, 50 do for x = 0, 10, i / 8 do s = s + x end for x = 5, -5, -i / 16 do s = s - x end end return s`,
+	"step becomes zero": `
+		local ok, msg
+		local s = 0
+		for i = 5, 0, -1 do
+			ok, msg = pcall(function() for j = 1, 10, i do s = s + j end end)
+			if not ok then break end
+		end
+		return s, ok, (tostring(msg):gsub("^.-:%d+: ", ""))`,
+	"huge steps":             `local s = 0 for i = 1, 30 do for j = 1, 100, 9007199254740992 do s = s + j end for j = 1, 10, i * 1000 do s = s + j end end return s`,
+	"negative variable step": `local s = 0 for i = 1, 40 do for j = 100, 1, -i do s = s + j end end return s`,
+}
+
+func TestJITVariableStepPrograms(t *testing.T) {
+	skipWithoutJIT(t)
+	for name, src := range jitVariableStepPrograms {
+		name, src := name, src
+		t.Run(name, func(t *testing.T) {
+			checkJITMatchesInterpreter(t, name, src)
+		})
+	}
+	for _, version := range []LanguageVersion{Lua51, Lua55} {
+		_, st := runChunk(jitTestOptions(version, 5), jitVariableStepPrograms["step changes between entries"])
+		if st.Compiled == 0 || st.Blacklisted != 0 || st.Invalidated > 1 {
+			t.Errorf("%v: loops with a variable step do not stay native: %s", version, st)
+		}
+	}
+}
+
+func TestJITBoolArrayPrograms(t *testing.T) {
+	skipWithoutJIT(t)
+	for name, src := range jitBoolArrayPrograms {
+		name, src := name, src
+		t.Run(name, func(t *testing.T) {
+			checkJITMatchesInterpreter(t, name, src)
+		})
+	}
+	for _, version := range []LanguageVersion{Lua51, Lua55} {
+		_, st := runChunk(jitTestOptions(version, 5), `
+			local flags = {}
+			for i = 1, 20000 do flags[i] = true end
+			local count = 0
+			for i = 2, 20000 do if flags[i] then count = count + 1 end flags[i] = false end
+			return count`)
+		if st.Compiled == 0 || st.Callouts > 200 || st.Blacklisted != 0 {
+			t.Errorf("%v: boolean array access is not native: %s", version, st)
+		}
+	}
+}

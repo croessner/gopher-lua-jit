@@ -355,3 +355,36 @@ func TestTableClone(t *testing.T) {
 		}
 	}
 }
+
+// TestTableBoolArray checks the unboxed boolean array representation.
+func TestTableBoolArray(t *testing.T) {
+	tbl := newLTable(0, 0)
+	tbl.typedOK = true
+	for i := 1; i <= 10; i++ {
+		tbl.RawSetInt(i, LBool(i%2 == 0))
+	}
+	if tbl.akind != arrayKindBool || tbl.Len() != 10 || tbl.RawGetInt(2) != LTrue || tbl.RawGetInt(3) != LFalse {
+		t.Fatalf("unexpected boolean array: kind %d len %d", tbl.akind, tbl.Len())
+	}
+	tbl.Insert(1, LTrue)
+	if tbl.akind != arrayKindBool || tbl.RawGetInt(1) != LTrue || tbl.RawGetInt(3) != LTrue || tbl.Remove(1) != LTrue {
+		t.Fatalf("insert/remove broke the boolean array")
+	}
+	n := 0
+	tbl.ForEach(func(_, v LValue) {
+		if v == LTrue {
+			n++
+		}
+	})
+	if n != 5 {
+		t.Fatalf("%d true values, want 5", n)
+	}
+	clone := tbl.Clone()
+	tbl.RawSetInt(4, LNumber(1))
+	if tbl.akind != arrayKindGeneric || tbl.RawGetInt(4) != LNumber(1) || tbl.RawGetInt(2) != LTrue || tbl.Len() != 10 {
+		t.Fatalf("storing a number did not convert the array correctly")
+	}
+	if clone.akind != arrayKindBool || clone.RawGetInt(4) != LTrue {
+		t.Fatalf("the clone changed with its source")
+	}
+}

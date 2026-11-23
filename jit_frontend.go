@@ -482,17 +482,24 @@ func (fe *jitFrontend) speculateLoopStep() {
 		if fe.info.data[pc] || opGetOpCode(inst) != OP_FORLOOP || pc+1+opGetArgSbx(inst) != fe.entryPC {
 			continue
 		}
+		// A step of one (the usual case) is treated as a constant; any
+		// other step may differ on the next entry (for j = i, n, i), so
+		// only its sign is assumed where the loop is translated.
 		slot := opGetArgA(inst) + 2
 		s := &fe.st[slot]
 		switch s.kind {
 		case skInt:
-			c := fe.f.ConstInt(fe.cur, int64(fe.frame[slot].(LInteger)))
-			fe.guard(fe.f.NewValue(fe.cur, jit.OpEq, jit.TInt, 0, s.val, c), -1, 0)
-			s.val = c
+			if v := int64(fe.frame[slot].(LInteger)); v == 1 || v == -1 {
+				c := fe.f.ConstInt(fe.cur, v)
+				fe.guard(fe.f.NewValue(fe.cur, jit.OpEq, jit.TInt, 0, s.val, c), -1, 0)
+				s.val = c
+			}
 		case skFloat:
-			c := fe.f.ConstFloat(fe.cur, float64(fe.frame[slot].(LNumber)))
-			fe.guard(fe.f.NewValue(fe.cur, jit.OpFEq, jit.TInt, 0, s.val, c), -1, 0)
-			s.val = c
+			if v := float64(fe.frame[slot].(LNumber)); v == 1 || v == -1 {
+				c := fe.f.ConstFloat(fe.cur, v)
+				fe.guard(fe.f.NewValue(fe.cur, jit.OpFEq, jit.TInt, 0, s.val, c), -1, 0)
+				s.val = c
+			}
 		}
 		return
 	}
@@ -1610,17 +1617,22 @@ func (fe *jitFrontend) forPrep(a, pcBody, pcExit int) {
 	init, ik, ok1 := fe.num(a)
 	limit, lk, ok2 := fe.num(a + 1)
 	step, sk, ok3 := fe.num(a + 2)
-	if !ok1 || !ok2 || !ok3 || !step.IsConst() {
+	if !ok1 || !ok2 || !ok3 {
+		fe.exitBlock()
+		return
+	}
+	positive, ok := fe.stepDirection(a+2, step, sk)
+	if !ok {
 		fe.exitBlock()
 		return
 	}
 	var skip *jit.Value
 	if ik == skInt && sk == skInt {
-		if lk != skInt || step.Aux == 0 {
+		if lk != skInt {
 			fe.exitBlock()
 			return
 		}
-		if step.Aux > 0 {
+		if positive {
 			skip = fe.op(jit.OpLt, jit.TInt, limit, init)
 		} else {
 			skip = fe.op(jit.OpLt, jit.TInt, init, limit)
@@ -1631,16 +1643,7 @@ func (fe *jitFrontend) forPrep(a, pcBody, pcExit int) {
 		fe.set(a+3, skInt, init)
 	} else {
 		finit, flimit := fe.toFloat(init, ik), fe.toFloat(limit, lk)
-		fstep := step
-		stepv := step.Float()
-		if sk == skInt {
-			stepv = float64(step.Aux)
-			fstep = fe.f.ConstFloat(fe.cur, stepv)
-		}
-		if stepv == 0 || stepv != stepv {
-			fe.exitBlock()
-			return
-		}
+		fstep := fe.toFloat(step, sk)
 		if !fe.L.lang55 {
 			// Lua 5.1 computes the first index as (init - step) + step
 			finit = fe.op(jit.OpFAdd, jit.TFloat, fe.op(jit.OpFSub, jit.TFloat, finit, fstep), fstep)
@@ -1650,7 +1653,7 @@ func (fe *jitFrontend) forPrep(a, pcBody, pcExit int) {
 		// the two profiles, so NaN operands deoptimize
 		fe.guard(fe.op(jit.OpFEq, jit.TInt, flimit, flimit), -1, 0)
 		fe.guard(fe.op(jit.OpFEq, jit.TInt, finit, finit), -1, 0)
-		if stepv > 0 {
+		if positive {
 			skip = fe.op(jit.OpFLt, jit.TInt, flimit, finit)
 		} else {
 			skip = fe.op(jit.OpFLt, jit.TInt, finit, flimit)
@@ -1663,12 +1666,52 @@ func (fe *jitFrontend) forPrep(a, pcBody, pcExit int) {
 	fe.branch(skip, pcExit, pcBody)
 }
 
+// stepDirection determines the direction of a numeric for loop from its
+// step. A constant step is known; for any other step the direction it
+// has right now (or a positive one if the loop did not run yet) is
+// assumed and guarded: the step is not zero, not NaN and has that sign.
+// It reports false if the loop cannot be translated (a zero step).
+func (fe *jitFrontend) stepDirection(slot int, step *jit.Value, kind slotKind) (positive bool, ok bool) {
+	if step.IsConst() {
+		if kind == skInt {
+			return step.Aux > 0, step.Aux != 0
+		}
+		f := step.Float()
+		return f > 0, f != 0 && f == f
+	}
+	positive = true
+	switch v := fe.frame[slot].(type) {
+	case LInteger:
+		positive = v >= 0
+	case LNumber:
+		positive = !(v < 0)
+	}
+	switch {
+	case kind == skInt && positive:
+		fe.guard(fe.op(jit.OpLt, jit.TInt, fe.constInt(0), step), -1, 0)
+	case kind == skInt:
+		// (the smallest integer has no negation)
+		fe.guard(fe.op(jit.OpLt, jit.TInt, step, fe.constInt(0)), -1, 0)
+		fe.guard(fe.op(jit.OpLt, jit.TInt, fe.constInt(-1<<63), step), -1, 0)
+	case positive:
+		fe.guard(fe.op(jit.OpFLt, jit.TInt, fe.f.ConstFloat(fe.cur, 0), step), -1, 0)
+	default:
+		fe.guard(fe.op(jit.OpFLt, jit.TInt, step, fe.f.ConstFloat(fe.cur, 0)), -1, 0)
+	}
+	return positive, true
+}
+
 // forLoop translates OP_FORLOOP.
 func (fe *jitFrontend) forLoop(a, pcBody, pcExit int) {
 	idx, ik, ok1 := fe.num(a)
 	limit, lk, ok2 := fe.num(a + 1)
 	step, sk, ok3 := fe.num(a + 2)
-	if !ok1 || !ok2 || !ok3 || !step.IsConst() || ik != lk || ik != sk {
+	if !ok1 || !ok2 || !ok3 || ik != lk || ik != sk {
+		fe.exitBlock()
+		return
+	}
+	positive, ok := fe.stepDirection(a+2, step, sk)
+	if !ok {
 		fe.exitBlock()
 		return
 	}
@@ -1676,20 +1719,17 @@ func (fe *jitFrontend) forLoop(a, pcBody, pcExit int) {
 	if ik == skInt {
 		// the loop continues while the distance to the limit is at least
 		// one step (computed without overflow)
-		if step.Aux > 0 {
+		if positive {
 			dist := fe.op(jit.OpSub, jit.TInt, limit, idx)
 			cont = fe.op(jit.OpEq, jit.TInt, fe.op(jit.OpULt, jit.TInt, dist, step), fe.constInt(0))
-		} else if step.Aux < 0 {
-			dist := fe.op(jit.OpSub, jit.TInt, idx, limit)
-			cont = fe.op(jit.OpEq, jit.TInt, fe.op(jit.OpULt, jit.TInt, dist, fe.constInt(-step.Aux)), fe.constInt(0))
 		} else {
-			fe.exitBlock()
-			return
+			dist := fe.op(jit.OpSub, jit.TInt, idx, limit)
+			cont = fe.op(jit.OpEq, jit.TInt, fe.op(jit.OpULt, jit.TInt, dist, fe.op(jit.OpNeg, jit.TInt, step)), fe.constInt(0))
 		}
 		next = fe.op(jit.OpAdd, jit.TInt, idx, step)
 	} else {
 		next = fe.op(jit.OpFAdd, jit.TFloat, idx, step)
-		if step.Float() > 0 {
+		if positive {
 			cont = fe.op(jit.OpFLe, jit.TInt, next, limit)
 		} else {
 			cont = fe.op(jit.OpFLe, jit.TInt, limit, next)
@@ -1776,7 +1816,7 @@ func (fe *jitFrontend) getTable(a, b, c int) bool {
 	fe.guard(fe.op(jit.OpEq, jit.TInt, fe.load(jit.OpLoad8, jit.TInt, tp, int64(offTableAkind)), fe.constInt(int64(akind))), home, fbArray)
 	var off uintptr
 	switch akind {
-	case arrayKindInt:
+	case arrayKindInt, arrayKindBool:
 		off = offTableIarr
 	case arrayKindFloat:
 		off = offTableFarr
@@ -1787,9 +1827,13 @@ func (fe *jitFrontend) getTable(a, b, c int) bool {
 	n := fe.load(jit.OpLoad64, jit.TInt, tp, int64(off)+sliceOffLen)
 	fe.guard(fe.op(jit.OpULt, jit.TInt, idx, n), -1, 0)
 	switch akind {
-	case arrayKindInt:
+	case arrayKindInt, arrayKindBool:
 		addr := fe.op(jit.OpAdd, jit.TInt, data, fe.op(jit.OpShl, jit.TInt, idx, fe.constInt(3)))
-		fe.set(a, skInt, fe.load(jit.OpLoad64, jit.TInt, addr, 0))
+		kind := skInt
+		if akind == arrayKindBool {
+			kind = skBool // stored as the words 0 and 1
+		}
+		fe.set(a, kind, fe.load(jit.OpLoad64, jit.TInt, addr, 0))
 	case arrayKindFloat:
 		addr := fe.op(jit.OpAdd, jit.TInt, data, fe.op(jit.OpShl, jit.TInt, idx, fe.constInt(3)))
 		fe.set(a, skFloat, fe.load(jit.OpLoadF64, jit.TFloat, addr, 0))
@@ -1819,11 +1863,21 @@ func (fe *jitFrontend) setTable(a, b, c int) bool {
 		return false
 	}
 	akind := fe.arrayKindOf(home)
-	if akind != arrayKindInt && akind != arrayKindFloat {
-		return false
-	}
-	val, vk, ok := fe.rkNum(c)
-	if !ok || (akind == arrayKindInt) != (vk == skInt) {
+	var val *jit.Value
+	switch akind {
+	case arrayKindInt, arrayKindFloat:
+		v, vk, ok := fe.rkNum(c)
+		if !ok || (akind == arrayKindInt) != (vk == skInt) {
+			return false
+		}
+		val = v
+	case arrayKindBool:
+		// only booleans that are unboxed already (constants, comparisons)
+		if c&opBitRk != 0 || fe.st[c].kind != skBool {
+			return false
+		}
+		val = fe.st[c].val
+	default:
 		return false
 	}
 	idx, ok := fe.arrayIndex(b)
@@ -1979,7 +2033,7 @@ func (fe *jitFrontend) length(a, b int) bool {
 		return false
 	}
 	akind := fe.arrayKindOf(home)
-	if akind != arrayKindInt && akind != arrayKindFloat {
+	if akind == arrayKindGeneric {
 		return false
 	}
 	tp, home, _ := fe.tableOf(b)
