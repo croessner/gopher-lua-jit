@@ -500,6 +500,11 @@ func (g *progGen) generate() string {
 	g.sb.WriteString("function Cls:bump(m) self.u = self.u + m return self.u end\n")
 	g.sb.WriteString("local obj = setmetatable({u = 1, v = 2}, Cls)\n")
 	g.sb.WriteString("local ok, err = pcall(function()\n")
+	if g.rng.Intn(2) == 0 {
+		// the loop reaches the tables through local variables instead
+		// of upvalues
+		g.sb.WriteString("local t, p, q, flags, names, recs, obj, list = t, p, q, flags, names, recs, obj, list\n")
+	}
 	fmt.Fprintf(&g.sb, "for i = 1, %d do\n", 30+g.rng.Intn(150))
 	g.depth = 1
 	for n := 2 + g.rng.Intn(5); n > 0; n-- {

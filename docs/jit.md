@@ -82,7 +82,11 @@ Compiled natively inside hot loops (both profiles):
   no conversion and no check per use. This applies to loops whose start,
   limit and step are integers below 2^31 in magnitude (2^52 with less
   room for index arithmetic); other loops use the general float code;
-- reads of **upvalues** that hold numbers, functions or tables;
+- reads of **upvalues** that hold numbers, functions or tables. A table
+  found in an upvalue or in a global variable (a module-level `local t`
+  used inside functions, a global `config`) is indexed natively like a
+  table in a local variable: array elements, fields, length, methods and
+  `ipairs` all work on it;
 - **calls of small Lua functions**: a callee made of simple instructions
   (arithmetic, comparisons, field and array access, upvalue reads, further
   such calls, tail calls) and forward branches (`if`, `and`/`or`, several

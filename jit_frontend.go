@@ -915,21 +915,34 @@ func (fe *jitFrontend) joinBoxed(tb *feBlock, slot int, pending bool, st []slotS
 		}
 	}
 	phi := fe.f.NewPhi(tb.ir, jit.TInt)
-	src := int32(slot)
+	// what the reference will see is predicted from a value that one of
+	// the edges delivers: the register itself may hold something else
+	// right now (nil after the loop it controls has ended)
+	var sample LValue
+	note := func(v LValue) {
+		if sample == nil && v != nil && v != LNil {
+			sample = v
+		}
+	}
 	for i := range tb.incoming {
 		in := &tb.incoming[i]
 		s := &in.st[slot]
 		switch s.kind {
 		case skRef:
 			phi.Args = append(phi.Args, s.val)
-			src = s.src
+			note(fe.refPeek[s.src])
 		case skAlias:
 			phi.Args = append(phi.Args, fe.refHome(in.from, int(s.src)).val)
+			note(fe.frame[s.src])
 		default:
 			phi.Args = append(phi.Args, fe.refHome(in.from, slot).val)
+			note(fe.frame[slot])
 		}
 	}
-	st[slot] = slotState{kind: skRef, val: phi, src: src}
+	if sample != nil {
+		fe.refPeek[int32(slot)] = sample
+	}
+	st[slot] = slotState{kind: skRef, val: phi, src: int32(slot)}
 	return true
 }
 
@@ -1105,18 +1118,32 @@ func (fe *jitFrontend) load(o jit.Op, typ jit.Type, base *jit.Value, disp int64)
 }
 
 // A boxed value is read from a location: the home slot of a register,
-// identified by the slot number, or the place inside a table that a
-// register refers to (skRef), identified by refLoc of that register.
+// identified by the slot number, the place inside a table that a
+// register refers to (skRef), identified by refLoc of that register, or
+// the constant a register holds (skConst: a table or function found in an
+// upvalue or a global), identified by constLoc of that register. The
+// words of a constant are known when the code is compiled.
 
-// refBias distinguishes the two kinds of locations.
-const refBias = 1 << 12
+// refBias and constBias distinguish the kinds of locations.
+const (
+	refBias   = 1 << 12
+	constBias = 1 << 13
+)
 
 // refLoc returns the location of the value the register slot refers to.
 func refLoc(slot int) int { return slot + refBias }
 
+// constLoc returns the location of the constant the register slot holds.
+func constLoc(slot int) int { return slot + constBias }
+
 // locSlot returns the register a location belongs to: the home slot or
-// the register that holds the reference.
-func locSlot(loc int) int { return loc &^ refBias }
+// the register that holds the reference or the constant.
+func locSlot(loc int) int { return loc &^ (refBias | constBias) }
+
+// constAt returns the constant at a constant location.
+func (fe *jitFrontend) constAt(loc int) LValue {
+	return fe.consts[fe.st[locSlot(loc)].src]
+}
 
 // firstElement returns an element of the generic array part of the table
 // v as a sample of what the array holds, or nil.
@@ -1135,9 +1162,12 @@ func firstElement(v LValue) LValue {
 
 // peek returns the value that was last seen at a location: for a home
 // slot its current content, for a reference what the register held when
-// the interpreter last ran this code.
+// the interpreter last ran this code, for a constant the constant.
 func (fe *jitFrontend) peek(loc int) LValue {
 	slot := loc
+	if loc >= constBias {
+		return fe.constAt(loc)
+	}
 	if loc >= refBias {
 		slot = int(fe.st[locSlot(loc)].src)
 		if v, ok := fe.refPeek[int32(slot)]; ok {
@@ -1152,6 +1182,9 @@ func (fe *jitFrontend) peek(loc int) LValue {
 
 // slotItab loads the type word of the boxed value at a location.
 func (fe *jitFrontend) slotItab(loc int) *jit.Value {
+	if loc >= constBias {
+		return fe.constInt(int64(itabOf(fe.constAt(loc))))
+	}
 	if loc >= refBias {
 		return fe.load(jit.OpLoad64, jit.TInt, fe.st[locSlot(loc)].val, 0)
 	}
@@ -1160,6 +1193,9 @@ func (fe *jitFrontend) slotItab(loc int) *jit.Value {
 
 // slotData loads the data word of the boxed value at a location.
 func (fe *jitFrontend) slotData(loc int) *jit.Value {
+	if loc >= constBias {
+		return fe.constInt(int64(uintptr(dataOf(fe.constAt(loc)))))
+	}
 	if loc >= refBias {
 		return fe.load(jit.OpLoad64, jit.TInt, fe.st[locSlot(loc)].val, 8)
 	}
@@ -1218,9 +1254,9 @@ func (fe *jitFrontend) predictKind(slot int) uint8 {
 }
 
 // homeSlot resolves a register holding a boxed value to the location
-// the value is read from: the home slot that contains it or the place in
-// a table the register refers to. ok is false for registers that do not
-// hold a boxed value that is in memory.
+// the value is read from: the home slot that contains it, the place in
+// a table the register refers to or the constant the register holds. ok
+// is false for registers that hold an unboxed value or nil.
 func (fe *jitFrontend) homeSlot(slot int) (int, bool) {
 	switch s := &fe.st[slot]; s.kind {
 	case skHome:
@@ -1229,6 +1265,8 @@ func (fe *jitFrontend) homeSlot(slot int) (int, bool) {
 		return int(s.src), true
 	case skRef:
 		return refLoc(slot), true
+	case skConst:
+		return constLoc(slot), true
 	}
 	return 0, false
 }

@@ -179,10 +179,16 @@ Several kinds of speculation go beyond registers (`jit_frontend.go`,
   continues while the index has not passed the limit. If the values of a
   loop turn out not to be small integers, the failed check turns
   narrowing off for that loop.
-- **Upvalues.** A closed upvalue is read from its cell; numbers are
-  unboxed, functions and tables become constants guarded by identity. An
+- **Upvalues and globals.** A closed upvalue is read from its cell, an
+  open one from the register of the waiting function it belongs to;
+  numbers are unboxed, functions and tables become constants guarded by
+  identity. A global that holds a function or a table is a constant as
+  long as the version counter of the environment table is unchanged. An
   open upvalue of an inlined callee that refers to a register of the
-  running activation is that register.
+  running activation is that register. A constant table is a location
+  like a home slot or a reference: its type and data words are known at
+  compile time, so the type check of a table access folds away and the
+  access itself uses the same code as for a table in a register.
 - **Methods.** `obj:name()` resolves at compile time to the function the
   object's class provides. The code checks that the object still has
   exactly the string keys it had (so the name is not among them) and the
