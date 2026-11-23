@@ -2,317 +2,317 @@ goos: darwin
 goarch: amd64
 pkg: github.com/yuin/gopher-lua/benchmarks
 cpu: Intel(R) Core(TM) i9-9880H CPU @ 2.30GHz
-BenchmarkKernel/arith_int/interp-lua51-16         	       2	 398034597 ns/op	31996784 B/op	  124993 allocs/op
-BenchmarkKernel/arith_int/interp-lua51-16         	       2	 398367092 ns/op	31996720 B/op	  124992 allocs/op
-BenchmarkKernel/arith_int/interp-lua51-16         	       2	 395679858 ns/op	31996832 B/op	  124993 allocs/op
-BenchmarkKernel/arith_int/jit-lua51-16            	      22	  24830253 ns/op	      4096 code-bytes	       267.0 compile-us	         1.000 units	      40 B/op	       5 allocs/op
-BenchmarkKernel/arith_int/jit-lua51-16            	      25	  25682446 ns/op	      4096 code-bytes	       378.0 compile-us	         1.000 units	      50 B/op	       5 allocs/op
-BenchmarkKernel/arith_int/jit-lua51-16            	      22	  24557044 ns/op	      4096 code-bytes	       278.0 compile-us	         1.000 units	      40 B/op	       5 allocs/op
-BenchmarkKernel/arith_int/interp-lua55-16         	       5	 122709982 ns/op	31972844 B/op	  124896 allocs/op
-BenchmarkKernel/arith_int/interp-lua55-16         	       5	 116722562 ns/op	31972870 B/op	  124896 allocs/op
-BenchmarkKernel/arith_int/interp-lua55-16         	       5	 127876463 ns/op	31972777 B/op	  124895 allocs/op
-BenchmarkKernel/arith_int/jit-lua55-16            	      25	  22096224 ns/op	      4096 code-bytes	       165.0 compile-us	         1.000 units	      16 B/op	       2 allocs/op
-BenchmarkKernel/arith_int/jit-lua55-16            	      27	  22052706 ns/op	      4096 code-bytes	       182.0 compile-us	         1.000 units	      16 B/op	       2 allocs/op
-BenchmarkKernel/arith_int/jit-lua55-16            	      24	  22104908 ns/op	      4096 code-bytes	       170.0 compile-us	         1.000 units	      16 B/op	       2 allocs/op
-BenchmarkKernel/arith_float/interp-lua51-16       	       6	 103028523 ns/op	39998018 B/op	  156247 allocs/op
-BenchmarkKernel/arith_float/interp-lua51-16       	       5	 102801301 ns/op	39998000 B/op	  156247 allocs/op
-BenchmarkKernel/arith_float/interp-lua51-16       	       6	  96331835 ns/op	39998112 B/op	  156248 allocs/op
-BenchmarkKernel/arith_float/jit-lua51-16          	     150	   3863674 ns/op	      4096 code-bytes	       263.0 compile-us	         1.000 units	      80 B/op	       5 allocs/op
-BenchmarkKernel/arith_float/jit-lua51-16          	     160	   3740666 ns/op	      4096 code-bytes	       175.0 compile-us	         1.000 units	      80 B/op	       5 allocs/op
-BenchmarkKernel/arith_float/jit-lua51-16          	     154	   3705317 ns/op	      4096 code-bytes	       178.0 compile-us	         1.000 units	      79 B/op	       5 allocs/op
-BenchmarkKernel/arith_float/interp-lua55-16       	       6	  93189731 ns/op	39990837 B/op	  156216 allocs/op
-BenchmarkKernel/arith_float/interp-lua55-16       	       6	  93059626 ns/op	39990893 B/op	  156216 allocs/op
-BenchmarkKernel/arith_float/interp-lua55-16       	       6	  94139678 ns/op	39990856 B/op	  156216 allocs/op
-BenchmarkKernel/arith_float/jit-lua55-16          	     160	   3737758 ns/op	      4096 code-bytes	       152.0 compile-us	         1.000 units	      56 B/op	       2 allocs/op
-BenchmarkKernel/arith_float/jit-lua55-16          	     153	   3969695 ns/op	      4096 code-bytes	       183.0 compile-us	         1.000 units	      56 B/op	       2 allocs/op
-BenchmarkKernel/arith_float/jit-lua55-16          	     160	   3754071 ns/op	      4096 code-bytes	       157.0 compile-us	         1.000 units	      56 B/op	       2 allocs/op
-BenchmarkKernel/loop_nested/interp-lua51-16       	      15	  38430935 ns/op	 8398930 B/op	   71563 allocs/op
-BenchmarkKernel/loop_nested/interp-lua51-16       	      15	  37318218 ns/op	 8398962 B/op	   71563 allocs/op
-BenchmarkKernel/loop_nested/interp-lua51-16       	      14	  46554192 ns/op	 8398897 B/op	   71563 allocs/op
-BenchmarkKernel/loop_nested/jit-lua51-16          	     386	   1580458 ns/op	      8192 code-bytes	       518.0 compile-us	         2.000 units	      87 B/op	       9 allocs/op
-BenchmarkKernel/loop_nested/jit-lua51-16          	     382	   1659393 ns/op	      8192 code-bytes	       451.0 compile-us	         2.000 units	      88 B/op	       9 allocs/op
-BenchmarkKernel/loop_nested/jit-lua51-16          	     372	   1595341 ns/op	      8192 code-bytes	       396.0 compile-us	         2.000 units	      87 B/op	       9 allocs/op
-BenchmarkKernel/loop_nested/interp-lua55-16       	      18	  46211742 ns/op	 8071501 B/op	   31531 allocs/op
-BenchmarkKernel/loop_nested/interp-lua55-16       	      15	  39078155 ns/op	 8071474 B/op	   31531 allocs/op
-BenchmarkKernel/loop_nested/interp-lua55-16       	      14	  37822491 ns/op	 8071476 B/op	   31531 allocs/op
-BenchmarkKernel/loop_nested/jit-lua55-16          	     279	   2226718 ns/op	      8192 code-bytes	       361.0 compile-us	         2.000 units	      31 B/op	       2 allocs/op
-BenchmarkKernel/loop_nested/jit-lua55-16          	     260	   2179493 ns/op	      8192 code-bytes	       372.0 compile-us	         2.000 units	      31 B/op	       2 allocs/op
-BenchmarkKernel/loop_nested/jit-lua55-16          	     284	   2035718 ns/op	      8192 code-bytes	       403.0 compile-us	         2.000 units	      32 B/op	       2 allocs/op
-BenchmarkKernel/calls/interp-lua51-16             	      15	  38530198 ns/op	 4798904 B/op	   18750 allocs/op
-BenchmarkKernel/calls/interp-lua51-16             	      14	  35839682 ns/op	 4798896 B/op	   18750 allocs/op
-BenchmarkKernel/calls/interp-lua51-16             	      16	  36863564 ns/op	 4798919 B/op	   18750 allocs/op
-BenchmarkKernel/calls/jit-lua51-16                	     715	    825439 ns/op	      4096 code-bytes	       203.0 compile-us	         1.000 units	      47 B/op	       5 allocs/op
-BenchmarkKernel/calls/jit-lua51-16                	     715	    852593 ns/op	      4096 code-bytes	       212.0 compile-us	         1.000 units	      47 B/op	       5 allocs/op
-BenchmarkKernel/calls/jit-lua51-16                	     606	   1087690 ns/op	      4096 code-bytes	       362.0 compile-us	         1.000 units	      48 B/op	       5 allocs/op
-BenchmarkKernel/calls/interp-lua55-16             	      14	  39027462 ns/op	 4791476 B/op	   18718 allocs/op
-BenchmarkKernel/calls/interp-lua55-16             	      13	  47241590 ns/op	 4791469 B/op	   18718 allocs/op
-BenchmarkKernel/calls/interp-lua55-16             	      14	  41153614 ns/op	 4791492 B/op	   18718 allocs/op
-BenchmarkKernel/calls/jit-lua55-16                	     564	   1348537 ns/op	      4096 code-bytes	       285.0 compile-us	         1.000 units	      23 B/op	       2 allocs/op
-BenchmarkKernel/calls/jit-lua55-16                	     520	   1160197 ns/op	      4096 code-bytes	       311.0 compile-us	         1.000 units	      23 B/op	       2 allocs/op
-BenchmarkKernel/calls/jit-lua55-16                	     552	   1110886 ns/op	      4096 code-bytes	       207.0 compile-us	         1.000 units	      23 B/op	       2 allocs/op
-BenchmarkKernel/fib/interp-lua51-16               	      31	  18092322 ns/op	    4880 B/op	      20 allocs/op
-BenchmarkKernel/fib/interp-lua51-16               	      33	  18428820 ns/op	    4880 B/op	      20 allocs/op
-BenchmarkKernel/fib/interp-lua51-16               	      32	  19973518 ns/op	    4880 B/op	      20 allocs/op
-BenchmarkKernel/fib/jit-lua51-16                  	      32	  17969979 ns/op	         0 code-bytes	         0 compile-us	         0 units	    4880 B/op	      20 allocs/op
-BenchmarkKernel/fib/jit-lua51-16                  	      33	  16568537 ns/op	         0 code-bytes	         0 compile-us	         0 units	    4880 B/op	      20 allocs/op
-BenchmarkKernel/fib/jit-lua51-16                  	      37	  16796030 ns/op	         0 code-bytes	         0 compile-us	         0 units	    4879 B/op	      20 allocs/op
-BenchmarkKernel/fib/interp-lua55-16               	      39	  15269888 ns/op	     433 B/op	       1 allocs/op
-BenchmarkKernel/fib/interp-lua55-16               	      39	  15577750 ns/op	     433 B/op	       1 allocs/op
-BenchmarkKernel/fib/interp-lua55-16               	      34	  18154434 ns/op	     429 B/op	       1 allocs/op
-BenchmarkKernel/fib/jit-lua55-16                  	      36	  15644759 ns/op	         0 code-bytes	         0 compile-us	         0 units	     433 B/op	       1 allocs/op
-BenchmarkKernel/fib/jit-lua55-16                  	      37	  16010720 ns/op	         0 code-bytes	         0 compile-us	         0 units	     428 B/op	       1 allocs/op
-BenchmarkKernel/fib/jit-lua55-16                  	      37	  15851268 ns/op	         0 code-bytes	         0 compile-us	         0 units	     428 B/op	       1 allocs/op
-BenchmarkKernel/table_array/interp-lua51-16       	       8	  73133175 ns/op	32338110 B/op	   56285 allocs/op
-BenchmarkKernel/table_array/interp-lua51-16       	       6	  84326199 ns/op	32338160 B/op	   56285 allocs/op
-BenchmarkKernel/table_array/interp-lua51-16       	       7	  76018510 ns/op	32338109 B/op	   56285 allocs/op
-BenchmarkKernel/table_array/jit-lua51-16          	     100	   5525474 ns/op	     12288 code-bytes	       898.0 compile-us	         3.000 units	 8372264 B/op	      63 allocs/op
-BenchmarkKernel/table_array/jit-lua51-16          	     100	   5764046 ns/op	     12288 code-bytes	       938.0 compile-us	         3.000 units	 8372256 B/op	      63 allocs/op
-BenchmarkKernel/table_array/jit-lua51-16          	     100	   5770054 ns/op	     12288 code-bytes	       986.0 compile-us	         3.000 units	 8372249 B/op	      63 allocs/op
-BenchmarkKernel/table_array/interp-lua55-16       	       7	  76824312 ns/op	32301888 B/op	   56125 allocs/op
-BenchmarkKernel/table_array/interp-lua55-16       	       7	  81429262 ns/op	32301888 B/op	   56125 allocs/op
-BenchmarkKernel/table_array/interp-lua55-16       	       8	  75651443 ns/op	32301888 B/op	   56125 allocs/op
-BenchmarkKernel/table_array/jit-lua55-16          	     100	   5200842 ns/op	     12288 code-bytes	       742.0 compile-us	         3.000 units	 8371647 B/op	      48 allocs/op
-BenchmarkKernel/table_array/jit-lua55-16          	     120	   5503388 ns/op	     12288 code-bytes	       736.0 compile-us	         3.000 units	 8371391 B/op	      46 allocs/op
-BenchmarkKernel/table_array/jit-lua55-16          	      99	   5194734 ns/op	     12288 code-bytes	       821.0 compile-us	         3.000 units	 8371643 B/op	      48 allocs/op
-BenchmarkKernel/table_hash/interp-lua51-16        	       8	  66416174 ns/op	 7197326 B/op	   28120 allocs/op
-BenchmarkKernel/table_hash/interp-lua51-16        	       8	  63476594 ns/op	 7197312 B/op	   28120 allocs/op
-BenchmarkKernel/table_hash/interp-lua51-16        	       8	  75120392 ns/op	 7197312 B/op	   28120 allocs/op
-BenchmarkKernel/table_hash/jit-lua51-16           	     240	   2338041 ns/op	      4096 code-bytes	       343.0 compile-us	         1.000 units	     384 B/op	       8 allocs/op
-BenchmarkKernel/table_hash/jit-lua51-16           	     260	   2266278 ns/op	      4096 code-bytes	       387.0 compile-us	         1.000 units	     384 B/op	       8 allocs/op
-BenchmarkKernel/table_hash/jit-lua51-16           	     273	   2131745 ns/op	      4096 code-bytes	       329.0 compile-us	         1.000 units	     384 B/op	       8 allocs/op
-BenchmarkKernel/table_hash/interp-lua55-16        	       9	  57033084 ns/op	 7175776 B/op	   28033 allocs/op
-BenchmarkKernel/table_hash/interp-lua55-16        	       8	  71003613 ns/op	 7175776 B/op	   28033 allocs/op
-BenchmarkKernel/table_hash/interp-lua55-16        	       9	  60872758 ns/op	 7175813 B/op	   28033 allocs/op
-BenchmarkKernel/table_hash/jit-lua55-16           	     236	   2502944 ns/op	      4096 code-bytes	       343.0 compile-us	         1.000 units	     360 B/op	       5 allocs/op
-BenchmarkKernel/table_hash/jit-lua55-16           	     240	   2782034 ns/op	      4096 code-bytes	       302.0 compile-us	         1.000 units	     360 B/op	       5 allocs/op
-BenchmarkKernel/table_hash/jit-lua55-16           	     196	   3003607 ns/op	      4096 code-bytes	       291.0 compile-us	         1.000 units	     360 B/op	       5 allocs/op
-BenchmarkKernel/strings/interp-lua51-16           	      15	  38632297 ns/op	 3621543 B/op	  229766 allocs/op
-BenchmarkKernel/strings/interp-lua51-16           	      14	  37234755 ns/op	 3621598 B/op	  229766 allocs/op
-BenchmarkKernel/strings/interp-lua51-16           	      15	  37056639 ns/op	 3621618 B/op	  229766 allocs/op
-BenchmarkKernel/strings/jit-lua51-16              	      14	  37477584 ns/op	      4096 code-bytes	       349.0 compile-us	         1.000 units	 3566575 B/op	  229551 allocs/op
-BenchmarkKernel/strings/jit-lua51-16              	      14	  38499959 ns/op	      4096 code-bytes	       354.0 compile-us	         1.000 units	 3566591 B/op	  229551 allocs/op
-BenchmarkKernel/strings/jit-lua51-16              	      15	  36773122 ns/op	      4096 code-bytes	       351.0 compile-us	         1.000 units	 3566635 B/op	  229551 allocs/op
-BenchmarkKernel/strings/interp-lua55-16           	      32	  19225786 ns/op	 2756218 B/op	  138708 allocs/op
-BenchmarkKernel/strings/interp-lua55-16           	      32	  18380689 ns/op	 2756210 B/op	  138708 allocs/op
-BenchmarkKernel/strings/interp-lua55-16           	      33	  17659180 ns/op	 2756216 B/op	  138708 allocs/op
-BenchmarkKernel/strings/jit-lua55-16              	      31	  19957709 ns/op	      4096 code-bytes	       268.0 compile-us	         1.000 units	 2701829 B/op	  138496 allocs/op
-BenchmarkKernel/strings/jit-lua55-16              	      28	  18206924 ns/op	      4096 code-bytes	       337.0 compile-us	         1.000 units	 2701819 B/op	  138496 allocs/op
-BenchmarkKernel/strings/jit-lua55-16              	      32	  17949753 ns/op	      4096 code-bytes	       268.0 compile-us	         1.000 units	 2701840 B/op	  138496 allocs/op
-BenchmarkKernel/metamethods/interp-lua51-16       	       8	  69833929 ns/op	31198110 B/op	  209374 allocs/op
-BenchmarkKernel/metamethods/interp-lua51-16       	       7	  87172025 ns/op	31198100 B/op	  209374 allocs/op
-BenchmarkKernel/metamethods/interp-lua51-16       	       6	 126266224 ns/op	31198274 B/op	  209375 allocs/op
-BenchmarkKernel/metamethods/jit-lua51-16          	       6	  86897444 ns/op	         0 code-bytes	       202.0 compile-us	         1.000 units	31198144 B/op	  209374 allocs/op
-BenchmarkKernel/metamethods/jit-lua51-16          	       6	  87961704 ns/op	         0 code-bytes	       199.0 compile-us	         1.000 units	31198144 B/op	  209374 allocs/op
-BenchmarkKernel/metamethods/jit-lua51-16          	       6	 104064678 ns/op	         0 code-bytes	       240.0 compile-us	         1.000 units	31198256 B/op	  209375 allocs/op
-BenchmarkKernel/metamethods/interp-lua55-16       	       7	  78298170 ns/op	31180180 B/op	  209301 allocs/op
-BenchmarkKernel/metamethods/interp-lua55-16       	       7	  77711427 ns/op	31180196 B/op	  209301 allocs/op
-BenchmarkKernel/metamethods/interp-lua55-16       	       8	  79358614 ns/op	31180172 B/op	  209301 allocs/op
-BenchmarkKernel/metamethods/jit-lua55-16          	       7	  76752207 ns/op	         0 code-bytes	       169.0 compile-us	         1.000 units	31180148 B/op	  209301 allocs/op
-BenchmarkKernel/metamethods/jit-lua55-16          	       7	  78843941 ns/op	         0 code-bytes	       158.0 compile-us	         1.000 units	31180260 B/op	  209302 allocs/op
-BenchmarkKernel/metamethods/jit-lua55-16          	       7	  84684130 ns/op	         0 code-bytes	       159.0 compile-us	         1.000 units	31180164 B/op	  209301 allocs/op
-BenchmarkKernel/closures/interp-lua51-16          	       9	  56816992 ns/op	28797939 B/op	  618746 allocs/op
-BenchmarkKernel/closures/interp-lua51-16          	      10	  57813999 ns/op	28797920 B/op	  618746 allocs/op
-BenchmarkKernel/closures/interp-lua51-16          	      10	  59464597 ns/op	28797931 B/op	  618746 allocs/op
-BenchmarkKernel/closures/jit-lua51-16             	      10	  53709839 ns/op	         0 code-bytes	       801.0 compile-us	         4.000 units	28797923 B/op	  618746 allocs/op
-BenchmarkKernel/closures/jit-lua51-16             	      10	  52652339 ns/op	         0 code-bytes	       792.0 compile-us	         4.000 units	28797956 B/op	  618747 allocs/op
-BenchmarkKernel/closures/jit-lua51-16             	       9	  56869502 ns/op	         0 code-bytes	      1209 compile-us	         4.000 units	28798001 B/op	  618747 allocs/op
-BenchmarkKernel/closures/interp-lua55-16          	       9	  58840302 ns/op	28783356 B/op	  618687 allocs/op
-BenchmarkKernel/closures/interp-lua55-16          	       9	  56502620 ns/op	28783368 B/op	  618687 allocs/op
-BenchmarkKernel/closures/interp-lua55-16          	       9	  59062084 ns/op	28783356 B/op	  618687 allocs/op
-BenchmarkKernel/closures/jit-lua55-16             	       9	  60198809 ns/op	         0 code-bytes	       880.0 compile-us	         4.000 units	28783356 B/op	  618687 allocs/op
-BenchmarkKernel/closures/jit-lua55-16             	      10	  56991351 ns/op	         0 code-bytes	       974.0 compile-us	         4.000 units	28783324 B/op	  618686 allocs/op
-BenchmarkKernel/closures/jit-lua55-16             	      10	  56147070 ns/op	         0 code-bytes	       689.0 compile-us	         4.000 units	28783336 B/op	  618686 allocs/op
-BenchmarkKernel/mandelbrot/interp-lua51-16        	       7	  81034329 ns/op	19114838 B/op	   74864 allocs/op
-BenchmarkKernel/mandelbrot/interp-lua51-16        	       8	  77521063 ns/op	19114842 B/op	   74864 allocs/op
-BenchmarkKernel/mandelbrot/interp-lua51-16        	       7	  71982215 ns/op	19114774 B/op	   74863 allocs/op
-BenchmarkKernel/mandelbrot/jit-lua51-16           	     542	   1105021 ns/op	      8192 code-bytes	      1357 compile-us	         3.000 units	     138 B/op	       5 allocs/op
-BenchmarkKernel/mandelbrot/jit-lua51-16           	     519	   1187304 ns/op	      8192 code-bytes	      1276 compile-us	         3.000 units	     138 B/op	       5 allocs/op
-BenchmarkKernel/mandelbrot/jit-lua51-16           	     483	   1161286 ns/op	      8192 code-bytes	      1491 compile-us	         3.000 units	     138 B/op	       5 allocs/op
-BenchmarkKernel/mandelbrot/interp-lua55-16        	       7	  81320665 ns/op	19106022 B/op	   74633 allocs/op
-BenchmarkKernel/mandelbrot/interp-lua55-16        	       7	  74458022 ns/op	19106006 B/op	   74633 allocs/op
-BenchmarkKernel/mandelbrot/interp-lua55-16        	       8	  71418097 ns/op	19105998 B/op	   74632 allocs/op
-BenchmarkKernel/mandelbrot/jit-lua55-16           	     549	   1063114 ns/op	      8192 code-bytes	       978.0 compile-us	         3.000 units	      98 B/op	       0 allocs/op
-BenchmarkKernel/mandelbrot/jit-lua55-16           	     567	   1080792 ns/op	      8192 code-bytes	       954.0 compile-us	         3.000 units	      99 B/op	       0 allocs/op
-BenchmarkKernel/mandelbrot/jit-lua55-16           	     578	   1038378 ns/op	      8192 code-bytes	      1116 compile-us	         3.000 units	      99 B/op	       0 allocs/op
-BenchmarkKernel/sieve/interp-lua51-16             	       8	  74849713 ns/op	25872592 B/op	   68182 allocs/op
-BenchmarkKernel/sieve/interp-lua51-16             	       7	  82609161 ns/op	25872642 B/op	   68182 allocs/op
-BenchmarkKernel/sieve/interp-lua51-16             	       7	  74569201 ns/op	25872626 B/op	   68182 allocs/op
-BenchmarkKernel/sieve/jit-lua51-16                	      97	   5874052 ns/op	     12288 code-bytes	      1064 compile-us	         3.000 units	 8370299 B/op	      44 allocs/op
-BenchmarkKernel/sieve/jit-lua51-16                	     100	   5789170 ns/op	     12288 code-bytes	      1134 compile-us	         3.000 units	 8370306 B/op	      45 allocs/op
-BenchmarkKernel/sieve/jit-lua51-16                	     100	   5796236 ns/op	     12288 code-bytes	      1013 compile-us	         3.000 units	 8370313 B/op	      45 allocs/op
-BenchmarkKernel/sieve/interp-lua55-16             	       7	  71853465 ns/op	25835574 B/op	   67919 allocs/op
-BenchmarkKernel/sieve/interp-lua55-16             	       7	  85001678 ns/op	25835574 B/op	   67919 allocs/op
-BenchmarkKernel/sieve/interp-lua55-16             	       8	  93182442 ns/op	25835584 B/op	   67919 allocs/op
-BenchmarkKernel/sieve/jit-lua55-16                	      97	   7272991 ns/op	     12288 code-bytes	      1376 compile-us	         3.000 units	 8370128 B/op	      35 allocs/op
-BenchmarkKernel/sieve/jit-lua55-16                	      87	   6686934 ns/op	     12288 code-bytes	      1025 compile-us	         3.000 units	 8370136 B/op	      35 allocs/op
-BenchmarkKernel/sieve/jit-lua55-16                	      99	   6866523 ns/op	     12288 code-bytes	       885.0 compile-us	         3.000 units	 8370131 B/op	      35 allocs/op
-BenchmarkKernel/math_calls/interp-lua51-16        	       3	 217498884 ns/op	16797685 B/op	  937493 allocs/op
-BenchmarkKernel/math_calls/interp-lua51-16        	       3	 180199147 ns/op	16797696 B/op	  937493 allocs/op
-BenchmarkKernel/math_calls/interp-lua51-16        	       3	 183396489 ns/op	16797701 B/op	  937493 allocs/op
-BenchmarkKernel/math_calls/jit-lua51-16           	     572	   1072286 ns/op	      4096 code-bytes	       251.0 compile-us	         1.000 units	      72 B/op	       7 allocs/op
-BenchmarkKernel/math_calls/jit-lua51-16           	     572	   1059936 ns/op	      4096 code-bytes	       260.0 compile-us	         1.000 units	      72 B/op	       7 allocs/op
-BenchmarkKernel/math_calls/jit-lua51-16           	     568	   1060293 ns/op	      4096 code-bytes	       253.0 compile-us	         1.000 units	      72 B/op	       7 allocs/op
-BenchmarkKernel/math_calls/interp-lua55-16        	       3	 205903725 ns/op	16259504 B/op	  871161 allocs/op
-BenchmarkKernel/math_calls/interp-lua55-16        	       3	 226792042 ns/op	16259424 B/op	  871160 allocs/op
-BenchmarkKernel/math_calls/interp-lua55-16        	       3	 209090286 ns/op	16259424 B/op	  871160 allocs/op
-BenchmarkKernel/math_calls/jit-lua55-16           	     344	   1694360 ns/op	      4096 code-bytes	       275.0 compile-us	         1.000 units	      38 B/op	       3 allocs/op
-BenchmarkKernel/math_calls/jit-lua55-16           	     319	   1917683 ns/op	      4096 code-bytes	       248.0 compile-us	         1.000 units	      40 B/op	       3 allocs/op
-BenchmarkKernel/math_calls/jit-lua55-16           	     354	   1653287 ns/op	      4096 code-bytes	       252.0 compile-us	         1.000 units	      39 B/op	       3 allocs/op
-BenchmarkKernel/go_callback/interp-lua51-16       	      10	  51212806 ns/op	 7198931 B/op	  318750 allocs/op
-BenchmarkKernel/go_callback/interp-lua51-16       	      12	  52220013 ns/op	 7198953 B/op	  318750 allocs/op
-BenchmarkKernel/go_callback/interp-lua51-16       	      10	  55183135 ns/op	 7198950 B/op	  318750 allocs/op
-BenchmarkKernel/go_callback/jit-lua51-16          	      12	  61612210 ns/op	      4096 code-bytes	       228.0 compile-us	         1.000 units	 4799030 B/op	  309376 allocs/op
-BenchmarkKernel/go_callback/jit-lua51-16          	       9	  57124117 ns/op	      4096 code-bytes	       275.0 compile-us	         1.000 units	 4799029 B/op	  309376 allocs/op
-BenchmarkKernel/go_callback/jit-lua51-16          	      10	  53871301 ns/op	      4096 code-bytes	       228.0 compile-us	         1.000 units	 4799035 B/op	  309376 allocs/op
-BenchmarkKernel/go_callback/interp-lua55-16       	       9	  61192799 ns/op	 7191765 B/op	  318719 allocs/op
-BenchmarkKernel/go_callback/interp-lua55-16       	       9	  56715464 ns/op	 7191733 B/op	  318719 allocs/op
-BenchmarkKernel/go_callback/interp-lua55-16       	       8	  69269560 ns/op	 7191718 B/op	  318719 allocs/op
-BenchmarkKernel/go_callback/jit-lua55-16          	      10	  51055486 ns/op	      4096 code-bytes	       211.0 compile-us	         1.000 units	 4791852 B/op	  309345 allocs/op
-BenchmarkKernel/go_callback/jit-lua55-16          	      12	  47509013 ns/op	      4096 code-bytes	       178.0 compile-us	         1.000 units	 4791840 B/op	  309345 allocs/op
-BenchmarkKernel/go_callback/jit-lua55-16          	      12	  44510669 ns/op	      4096 code-bytes	       173.0 compile-us	         1.000 units	 4791838 B/op	  309345 allocs/op
-BenchmarkKernel/objects/interp-lua51-16           	       3	 178877396 ns/op	12740858 B/op	   57566 allocs/op
-BenchmarkKernel/objects/interp-lua51-16           	       3	 174453505 ns/op	12740970 B/op	   57567 allocs/op
-BenchmarkKernel/objects/interp-lua51-16           	       4	 213144093 ns/op	12740956 B/op	   57567 allocs/op
-BenchmarkKernel/objects/jit-lua51-16              	      97	   5288722 ns/op	      8192 code-bytes	      2335 compile-us	         3.000 units	   44001 B/op	     223 allocs/op
-BenchmarkKernel/objects/jit-lua51-16              	     109	   5390904 ns/op	      8192 code-bytes	      2278 compile-us	         3.000 units	   44000 B/op	     223 allocs/op
-BenchmarkKernel/objects/jit-lua51-16              	     100	   5436284 ns/op	      8192 code-bytes	      2225 compile-us	         3.000 units	   44000 B/op	     223 allocs/op
-BenchmarkKernel/objects/interp-lua55-16           	       3	 197610317 ns/op	12669562 B/op	   49628 allocs/op
-BenchmarkKernel/objects/interp-lua55-16           	       4	 161672851 ns/op	12669720 B/op	   49629 allocs/op
-BenchmarkKernel/objects/interp-lua55-16           	       3	 184502710 ns/op	12669488 B/op	   49628 allocs/op
-BenchmarkKernel/objects/jit-lua55-16              	     100	   5786363 ns/op	      8192 code-bytes	      4924 compile-us	         5.000 units	   57276 B/op	     379 allocs/op
-BenchmarkKernel/objects/jit-lua55-16              	     100	   5105120 ns/op	      8192 code-bytes	      4288 compile-us	         5.000 units	   57276 B/op	     379 allocs/op
-BenchmarkKernel/objects/jit-lua55-16              	     100	   5091090 ns/op	      8192 code-bytes	      3707 compile-us	         5.000 units	   57276 B/op	     379 allocs/op
-BenchmarkKernel/module_state/interp-lua51-16      	       1	 841040327 ns/op	43996960 B/op	 2109366 allocs/op
-BenchmarkKernel/module_state/interp-lua51-16      	       1	 794723192 ns/op	43997200 B/op	 2109368 allocs/op
-BenchmarkKernel/module_state/interp-lua51-16      	       1	 912578752 ns/op	43997120 B/op	 2109367 allocs/op
-BenchmarkKernel/module_state/jit-lua51-16         	      19	  31563836 ns/op	      8192 code-bytes	      1041 compile-us	         2.000 units	      85 B/op	       9 allocs/op
-BenchmarkKernel/module_state/jit-lua51-16         	      19	  31801034 ns/op	      8192 code-bytes	      1023 compile-us	         2.000 units	      85 B/op	       9 allocs/op
-BenchmarkKernel/module_state/jit-lua51-16         	      18	  29571794 ns/op	      8192 code-bytes	       987.0 compile-us	         2.000 units	      86 B/op	       9 allocs/op
-BenchmarkKernel/module_state/interp-lua55-16      	       1	 593592396 ns/op	35974864 B/op	 1108536 allocs/op
-BenchmarkKernel/module_state/interp-lua55-16      	       1	 521102156 ns/op	35974960 B/op	 1108536 allocs/op
-BenchmarkKernel/module_state/interp-lua55-16      	       1	 532010450 ns/op	35974800 B/op	 1108535 allocs/op
-BenchmarkKernel/module_state/jit-lua55-16         	      31	  20911657 ns/op	      8192 code-bytes	       845.0 compile-us	         2.000 units	      48 B/op	       4 allocs/op
-BenchmarkKernel/module_state/jit-lua55-16         	      28	  21769735 ns/op	      8192 code-bytes	       989.0 compile-us	         2.000 units	      32 B/op	       4 allocs/op
-BenchmarkKernel/module_state/jit-lua55-16         	      27	  19284772 ns/op	      8192 code-bytes	       846.0 compile-us	         2.000 units	      32 B/op	       4 allocs/op
-BenchmarkKernel/linked_list/interp-lua51-16       	      42	  15105465 ns/op	 1895661 B/op	    8288 allocs/op
-BenchmarkKernel/linked_list/interp-lua51-16       	      39	  15192255 ns/op	 1895667 B/op	    8288 allocs/op
-BenchmarkKernel/linked_list/interp-lua51-16       	      36	  15767043 ns/op	 1895657 B/op	    8288 allocs/op
-BenchmarkKernel/linked_list/jit-lua51-16          	     247	   2399230 ns/op	      4096 code-bytes	      1200 compile-us	         5.000 units	  303754 B/op	    2070 allocs/op
-BenchmarkKernel/linked_list/jit-lua51-16          	     232	   2658434 ns/op	      4096 code-bytes	      1796 compile-us	         5.000 units	  303619 B/op	    2069 allocs/op
-BenchmarkKernel/linked_list/jit-lua51-16          	     255	   2364999 ns/op	      4096 code-bytes	      1142 compile-us	         5.000 units	  303818 B/op	    2070 allocs/op
-BenchmarkKernel/linked_list/interp-lua55-16       	      45	  13624098 ns/op	 1888023 B/op	    8252 allocs/op
-BenchmarkKernel/linked_list/interp-lua55-16       	      42	  13480144 ns/op	 1888018 B/op	    8252 allocs/op
-BenchmarkKernel/linked_list/interp-lua55-16       	      46	  13176039 ns/op	 1888045 B/op	    8252 allocs/op
-BenchmarkKernel/linked_list/jit-lua55-16          	     255	   2725190 ns/op	      4096 code-bytes	      1147 compile-us	         5.000 units	  295603 B/op	    2031 allocs/op
-BenchmarkKernel/linked_list/jit-lua55-16          	     265	   2249605 ns/op	      4096 code-bytes	       968.0 compile-us	         5.000 units	  295680 B/op	    2031 allocs/op
-BenchmarkKernel/linked_list/jit-lua55-16          	     260	   2320023 ns/op	      4096 code-bytes	      1002 compile-us	         5.000 units	  295642 B/op	    2031 allocs/op
-BenchmarkKernel/string_scan/interp-lua51-16       	       5	 139538441 ns/op	 4158873 B/op	  210000 allocs/op
-BenchmarkKernel/string_scan/interp-lua51-16       	       4	 135747698 ns/op	 4158908 B/op	  210000 allocs/op
-BenchmarkKernel/string_scan/interp-lua51-16       	       4	 133370576 ns/op	 4158896 B/op	  210000 allocs/op
-BenchmarkKernel/string_scan/jit-lua51-16          	     100	   6620071 ns/op	      4096 code-bytes	       693.0 compile-us	         1.000 units	      86 B/op	       6 allocs/op
-BenchmarkKernel/string_scan/jit-lua51-16          	     100	   5726141 ns/op	      4096 code-bytes	       686.0 compile-us	         1.000 units	      86 B/op	       6 allocs/op
-BenchmarkKernel/string_scan/jit-lua51-16          	     100	   5608029 ns/op	      4096 code-bytes	       707.0 compile-us	         1.000 units	      86 B/op	       6 allocs/op
-BenchmarkKernel/string_scan/interp-lua55-16       	       6	  90771638 ns/op	 2530192 B/op	    9885 allocs/op
-BenchmarkKernel/string_scan/interp-lua55-16       	       7	  82040083 ns/op	 2530226 B/op	    9885 allocs/op
-BenchmarkKernel/string_scan/interp-lua55-16       	       7	  91688194 ns/op	 2530210 B/op	    9885 allocs/op
-BenchmarkKernel/string_scan/jit-lua55-16          	     100	   5187242 ns/op	      4096 code-bytes	       584.0 compile-us	         1.000 units	      54 B/op	       2 allocs/op
-BenchmarkKernel/string_scan/jit-lua55-16          	     121	   4972156 ns/op	      4096 code-bytes	       940.0 compile-us	         1.000 units	      56 B/op	       2 allocs/op
-BenchmarkKernel/string_scan/jit-lua55-16          	     122	   4741717 ns/op	      4096 code-bytes	       569.0 compile-us	         1.000 units	      55 B/op	       2 allocs/op
-BenchmarkKernel/stencil/interp-lua51-16           	       3	 222274731 ns/op	45882832 B/op	  109194 allocs/op
-BenchmarkKernel/stencil/interp-lua51-16           	       3	 203922159 ns/op	45882832 B/op	  109194 allocs/op
-BenchmarkKernel/stencil/interp-lua51-16           	       3	 227170269 ns/op	45882832 B/op	  109194 allocs/op
-BenchmarkKernel/stencil/jit-lua51-16              	      49	  12413850 ns/op	     12288 code-bytes	      1268 compile-us	         3.000 units	 8375219 B/op	      93 allocs/op
-BenchmarkKernel/stencil/jit-lua51-16              	      46	  12272569 ns/op	     12288 code-bytes	      1556 compile-us	         3.000 units	 8375536 B/op	      95 allocs/op
-BenchmarkKernel/stencil/jit-lua51-16              	      46	  12115840 ns/op	     12288 code-bytes	      1625 compile-us	         3.000 units	 8375547 B/op	      96 allocs/op
-BenchmarkKernel/stencil/interp-lua55-16           	       3	 204754022 ns/op	38636618 B/op	   80870 allocs/op
-BenchmarkKernel/stencil/interp-lua55-16           	       3	 204654928 ns/op	38636688 B/op	   80870 allocs/op
-BenchmarkKernel/stencil/interp-lua55-16           	       3	 196482784 ns/op	38636618 B/op	   80870 allocs/op
-BenchmarkKernel/stencil/jit-lua55-16              	      57	  10918222 ns/op	     12288 code-bytes	      1024 compile-us	         3.000 units	 8373734 B/op	      64 allocs/op
-BenchmarkKernel/stencil/jit-lua55-16              	      56	  10866650 ns/op	     12288 code-bytes	      1168 compile-us	         3.000 units	 8373817 B/op	      65 allocs/op
-BenchmarkKernel/stencil/jit-lua55-16              	      58	  11150494 ns/op	     12288 code-bytes	      1285 compile-us	         3.000 units	 8373680 B/op	      64 allocs/op
-BenchmarkKernel/binary_search/interp-lua51-16     	       2	 276876175 ns/op	30401904 B/op	 1039418 allocs/op
-BenchmarkKernel/binary_search/interp-lua51-16     	       2	 256473452 ns/op	30401712 B/op	 1039416 allocs/op
-BenchmarkKernel/binary_search/interp-lua51-16     	       2	 289413098 ns/op	30401960 B/op	 1039418 allocs/op
-BenchmarkKernel/binary_search/jit-lua51-16        	      48	  12564398 ns/op	     12288 code-bytes	      1717 compile-us	         3.000 units	   25608 B/op	      21 allocs/op
-BenchmarkKernel/binary_search/jit-lua51-16        	      48	  12759760 ns/op	     12288 code-bytes	      1176 compile-us	         3.000 units	   25608 B/op	      21 allocs/op
-BenchmarkKernel/binary_search/jit-lua51-16        	      45	  12690068 ns/op	     12288 code-bytes	      1218 compile-us	         3.000 units	   25602 B/op	      21 allocs/op
-BenchmarkKernel/binary_search/interp-lua55-16     	       2	 265324065 ns/op	18880312 B/op	  811706 allocs/op
-BenchmarkKernel/binary_search/interp-lua55-16     	       3	 254168288 ns/op	18880282 B/op	  811705 allocs/op
-BenchmarkKernel/binary_search/interp-lua55-16     	       2	 296679690 ns/op	18880248 B/op	  811705 allocs/op
-BenchmarkKernel/binary_search/jit-lua55-16        	      40	  13729499 ns/op	     12288 code-bytes	      1509 compile-us	         3.000 units	   25441 B/op	      15 allocs/op
-BenchmarkKernel/binary_search/jit-lua55-16        	      45	  12929373 ns/op	     12288 code-bytes	      1019 compile-us	         3.000 units	   25435 B/op	      15 allocs/op
-BenchmarkKernel/binary_search/jit-lua55-16        	      45	  13669917 ns/op	     12288 code-bytes	      1003 compile-us	         3.000 units	   25435 B/op	      15 allocs/op
-BenchmarkCold/arith_int/interp-lua51-16           	      14	  41346815 ns/op	 3391537 B/op	   13002 allocs/op
-BenchmarkCold/arith_int/interp-lua51-16           	      14	  37564602 ns/op	 3391537 B/op	   13002 allocs/op
-BenchmarkCold/arith_int/interp-lua51-16           	      15	  38828900 ns/op	 3391529 B/op	   13002 allocs/op
-BenchmarkCold/arith_int/jit-lua51-16              	     165	   3800902 ns/op	  324900 B/op	    1508 allocs/op
-BenchmarkCold/arith_int/jit-lua51-16              	     172	   3317496 ns/op	  324887 B/op	    1508 allocs/op
-BenchmarkCold/arith_int/jit-lua51-16              	     177	   3573625 ns/op	  324893 B/op	    1508 allocs/op
-BenchmarkCold/arith_int/interp-lua55-16           	      40	  15706591 ns/op	 3368788 B/op	   12925 allocs/op
-BenchmarkCold/arith_int/interp-lua55-16           	      43	  16162683 ns/op	 3368792 B/op	   12925 allocs/op
-BenchmarkCold/arith_int/interp-lua55-16           	      40	  14807632 ns/op	 3368793 B/op	   12925 allocs/op
-BenchmarkCold/arith_int/jit-lua55-16              	     199	   3414080 ns/op	  266919 B/op	    1111 allocs/op
-BenchmarkCold/arith_int/jit-lua55-16              	     183	   2921964 ns/op	  266907 B/op	    1111 allocs/op
-BenchmarkCold/arith_int/jit-lua55-16              	     210	   2892063 ns/op	  266916 B/op	    1111 allocs/op
-BenchmarkCold/mandelbrot/interp-lua51-16          	     482	   1105876 ns/op	  395323 B/op	    1668 allocs/op
-BenchmarkCold/mandelbrot/interp-lua51-16          	     568	   1087930 ns/op	  395322 B/op	    1668 allocs/op
-BenchmarkCold/mandelbrot/interp-lua51-16          	     554	   1200376 ns/op	  395322 B/op	    1668 allocs/op
-BenchmarkCold/mandelbrot/jit-lua51-16             	     463	   1305927 ns/op	  616965 B/op	    4151 allocs/op
-BenchmarkCold/mandelbrot/jit-lua51-16             	     426	   1381979 ns/op	  616963 B/op	    4151 allocs/op
-BenchmarkCold/mandelbrot/jit-lua51-16             	     470	   1228928 ns/op	  616962 B/op	    4151 allocs/op
-BenchmarkCold/mandelbrot/interp-lua55-16          	     541	   1175976 ns/op	  395185 B/op	    1629 allocs/op
-BenchmarkCold/mandelbrot/interp-lua55-16          	     430	   1181658 ns/op	  395185 B/op	    1629 allocs/op
-BenchmarkCold/mandelbrot/interp-lua55-16          	     518	   1149301 ns/op	  395185 B/op	    1629 allocs/op
-BenchmarkCold/mandelbrot/jit-lua55-16             	     531	   1116777 ns/op	  563444 B/op	    3535 allocs/op
-BenchmarkCold/mandelbrot/jit-lua55-16             	     489	   1109479 ns/op	  563455 B/op	    3535 allocs/op
-BenchmarkCold/mandelbrot/jit-lua55-16             	     477	   1215251 ns/op	  563446 B/op	    3535 allocs/op
-BenchmarkCold/strings/interp-lua51-16             	     135	   5127510 ns/op	  552122 B/op	   23045 allocs/op
-BenchmarkCold/strings/interp-lua51-16             	     100	   5050671 ns/op	  552084 B/op	   23045 allocs/op
-BenchmarkCold/strings/interp-lua51-16             	     128	   4323398 ns/op	  552095 B/op	   23045 allocs/op
-BenchmarkCold/strings/jit-lua51-16                	     100	   5209487 ns/op	  729505 B/op	   24430 allocs/op
-BenchmarkCold/strings/jit-lua51-16                	     100	   5315996 ns/op	  729510 B/op	   24430 allocs/op
-BenchmarkCold/strings/jit-lua51-16                	     100	   6185843 ns/op	  729510 B/op	   24430 allocs/op
-BenchmarkCold/strings/interp-lua55-16             	     211	   2569615 ns/op	  461834 B/op	   14380 allocs/op
-BenchmarkCold/strings/interp-lua55-16             	     261	   2238914 ns/op	  461834 B/op	   14380 allocs/op
-BenchmarkCold/strings/interp-lua55-16             	     255	   2595483 ns/op	  461835 B/op	   14380 allocs/op
-BenchmarkCold/strings/jit-lua55-16                	     192	   2797333 ns/op	  608511 B/op	   15508 allocs/op
-BenchmarkCold/strings/jit-lua55-16                	     217	   2800155 ns/op	  608506 B/op	   15507 allocs/op
-BenchmarkCold/strings/jit-lua55-16                	     175	   3282009 ns/op	  608516 B/op	   15508 allocs/op
-BenchmarkGoToLua/interp-lua51-16                  	 3243038	       183.7 ns/op	      23 B/op	       2 allocs/op
-BenchmarkGoToLua/interp-lua51-16                  	 3436638	       185.6 ns/op	      23 B/op	       2 allocs/op
-BenchmarkGoToLua/interp-lua51-16                  	 3483832	       169.3 ns/op	      23 B/op	       2 allocs/op
-BenchmarkGoToLua/jit-lua51-16                     	 3618642	       165.3 ns/op	      23 B/op	       2 allocs/op
-BenchmarkGoToLua/jit-lua51-16                     	 3649930	       178.7 ns/op	      23 B/op	       2 allocs/op
-BenchmarkGoToLua/jit-lua51-16                     	 3145510	       177.1 ns/op	      23 B/op	       2 allocs/op
-BenchmarkGoToLua/interp-lua55-16                  	 3896221	       169.8 ns/op	      15 B/op	       1 allocs/op
-BenchmarkGoToLua/interp-lua55-16                  	 3481285	       167.4 ns/op	      15 B/op	       1 allocs/op
-BenchmarkGoToLua/interp-lua55-16                  	 3317871	       184.0 ns/op	      15 B/op	       1 allocs/op
-BenchmarkGoToLua/jit-lua55-16                     	 3171240	       225.5 ns/op	      15 B/op	       1 allocs/op
-BenchmarkGoToLua/jit-lua55-16                     	 2425166	       234.5 ns/op	      15 B/op	       1 allocs/op
-BenchmarkGoToLua/jit-lua55-16                     	 2979481	       188.3 ns/op	      15 B/op	       1 allocs/op
-BenchmarkNewState/interp-lua51-16                 	    9649	     65762 ns/op	  144496 B/op	     302 allocs/op
-BenchmarkNewState/interp-lua51-16                 	    6829	     75596 ns/op	  144496 B/op	     302 allocs/op
-BenchmarkNewState/interp-lua51-16                 	    9189	     65184 ns/op	  144496 B/op	     302 allocs/op
-BenchmarkNewState/jit-lua51-16                    	    9417	     65728 ns/op	  144856 B/op	     307 allocs/op
-BenchmarkNewState/jit-lua51-16                    	    9440	     70506 ns/op	  144856 B/op	     307 allocs/op
-BenchmarkNewState/jit-lua51-16                    	    8796	     63590 ns/op	  144856 B/op	     307 allocs/op
-BenchmarkNewState/interp-lua55-16                 	   10000	     57259 ns/op	  146008 B/op	     334 allocs/op
-BenchmarkNewState/interp-lua55-16                 	   10000	     65166 ns/op	  146008 B/op	     334 allocs/op
-BenchmarkNewState/interp-lua55-16                 	    9645	     60878 ns/op	  146008 B/op	     334 allocs/op
-BenchmarkNewState/jit-lua55-16                    	    9250	     60216 ns/op	  146368 B/op	     339 allocs/op
-BenchmarkNewState/jit-lua55-16                    	   10000	     66148 ns/op	  146369 B/op	     339 allocs/op
-BenchmarkNewState/jit-lua55-16                    	    9626	     74284 ns/op	  146368 B/op	     339 allocs/op
-BenchmarkPool/interp-lua51-16                     	  115980	      5906 ns/op	    1909 B/op	      12 allocs/op
-BenchmarkPool/interp-lua51-16                     	   93102	      7055 ns/op	    1915 B/op	      12 allocs/op
-BenchmarkPool/interp-lua51-16                     	   95618	      5877 ns/op	    1917 B/op	      12 allocs/op
-BenchmarkPool/jit-lua51-16                        	  720932	       744.7 ns/op	      55 B/op	       5 allocs/op
-BenchmarkPool/jit-lua51-16                        	  837346	       619.5 ns/op	      54 B/op	       5 allocs/op
-BenchmarkPool/jit-lua51-16                        	  892888	       694.0 ns/op	      54 B/op	       5 allocs/op
-BenchmarkPool/interp-lua55-16                     	  274237	      2320 ns/op	      11 B/op	       0 allocs/op
-BenchmarkPool/interp-lua55-16                     	  261855	      1918 ns/op	      11 B/op	       0 allocs/op
-BenchmarkPool/interp-lua55-16                     	  137096	      3722 ns/op	      22 B/op	       0 allocs/op
-BenchmarkPool/jit-lua55-16                        	 1007972	       696.4 ns/op	       4 B/op	       0 allocs/op
-BenchmarkPool/jit-lua55-16                        	 1061476	       594.3 ns/op	       3 B/op	       0 allocs/op
-BenchmarkPool/jit-lua55-16                        	 1021389	       673.2 ns/op	       4 B/op	       0 allocs/op
+BenchmarkKernel/arith_int/interp-lua51-16         	       2	 299283011 ns/op	31996776 B/op	  124992 allocs/op
+BenchmarkKernel/arith_int/interp-lua51-16         	       2	 317996969 ns/op	31996776 B/op	  124992 allocs/op
+BenchmarkKernel/arith_int/interp-lua51-16         	       2	 331108985 ns/op	31996832 B/op	  124993 allocs/op
+BenchmarkKernel/arith_int/jit-lua51-16            	      34	  16814478 ns/op	      4096 code-bytes	       321.0 compile-us	         1.000 units	      47 B/op	       5 allocs/op
+BenchmarkKernel/arith_int/jit-lua51-16            	      36	  16509453 ns/op	      4096 code-bytes	       535.0 compile-us	         1.000 units	      47 B/op	       5 allocs/op
+BenchmarkKernel/arith_int/jit-lua51-16            	      36	  16417000 ns/op	      4096 code-bytes	       341.0 compile-us	         1.000 units	      47 B/op	       5 allocs/op
+BenchmarkKernel/arith_int/interp-lua55-16         	       6	  97483070 ns/op	31972770 B/op	  124895 allocs/op
+BenchmarkKernel/arith_int/interp-lua55-16         	       6	  96135840 ns/op	31972770 B/op	  124895 allocs/op
+BenchmarkKernel/arith_int/interp-lua55-16         	       6	  99300794 ns/op	31972770 B/op	  124895 allocs/op
+BenchmarkKernel/arith_int/jit-lua55-16            	      32	  16944013 ns/op	      4096 code-bytes	       192.0 compile-us	         1.000 units	      24 B/op	       2 allocs/op
+BenchmarkKernel/arith_int/jit-lua55-16            	      36	  17688913 ns/op	      4096 code-bytes	       185.0 compile-us	         1.000 units	      23 B/op	       2 allocs/op
+BenchmarkKernel/arith_int/jit-lua55-16            	      37	  17300424 ns/op	      4096 code-bytes	       172.0 compile-us	         1.000 units	      22 B/op	       2 allocs/op
+BenchmarkKernel/arith_float/interp-lua51-16       	       7	  78918970 ns/op	39998096 B/op	  156247 allocs/op
+BenchmarkKernel/arith_float/interp-lua51-16       	       7	  87576286 ns/op	39998050 B/op	  156247 allocs/op
+BenchmarkKernel/arith_float/interp-lua51-16       	       7	  76189592 ns/op	39998064 B/op	  156247 allocs/op
+BenchmarkKernel/arith_float/jit-lua51-16          	     205	   2869955 ns/op	      4096 code-bytes	       218.0 compile-us	         1.000 units	      80 B/op	       5 allocs/op
+BenchmarkKernel/arith_float/jit-lua51-16          	     195	   3192178 ns/op	      4096 code-bytes	       304.0 compile-us	         1.000 units	      80 B/op	       5 allocs/op
+BenchmarkKernel/arith_float/jit-lua51-16          	     205	   3058262 ns/op	      4096 code-bytes	       180.0 compile-us	         1.000 units	      80 B/op	       5 allocs/op
+BenchmarkKernel/arith_float/interp-lua55-16       	       7	  90269977 ns/op	39990880 B/op	  156216 allocs/op
+BenchmarkKernel/arith_float/interp-lua55-16       	       7	  84217109 ns/op	39990816 B/op	  156216 allocs/op
+BenchmarkKernel/arith_float/interp-lua55-16       	       7	  78875612 ns/op	39990880 B/op	  156216 allocs/op
+BenchmarkKernel/arith_float/jit-lua55-16          	     182	   2973748 ns/op	      4096 code-bytes	       199.0 compile-us	         1.000 units	      56 B/op	       2 allocs/op
+BenchmarkKernel/arith_float/jit-lua55-16          	     184	   3020452 ns/op	      4096 code-bytes	       177.0 compile-us	         1.000 units	      56 B/op	       2 allocs/op
+BenchmarkKernel/arith_float/jit-lua55-16          	     175	   3170786 ns/op	      4096 code-bytes	       283.0 compile-us	         1.000 units	      56 B/op	       2 allocs/op
+BenchmarkKernel/loop_nested/interp-lua51-16       	      20	  30506009 ns/op	 8398909 B/op	   71563 allocs/op
+BenchmarkKernel/loop_nested/interp-lua51-16       	      19	  29963952 ns/op	 8398916 B/op	   71563 allocs/op
+BenchmarkKernel/loop_nested/interp-lua51-16       	      19	  30028429 ns/op	 8398917 B/op	   71563 allocs/op
+BenchmarkKernel/loop_nested/jit-lua51-16          	     459	   1417884 ns/op	      8192 code-bytes	       465.0 compile-us	         2.000 units	      87 B/op	       9 allocs/op
+BenchmarkKernel/loop_nested/jit-lua51-16          	     450	   1382870 ns/op	      8192 code-bytes	       434.0 compile-us	         2.000 units	      87 B/op	       9 allocs/op
+BenchmarkKernel/loop_nested/jit-lua51-16          	     440	   1451828 ns/op	      8192 code-bytes	       484.0 compile-us	         2.000 units	      87 B/op	       9 allocs/op
+BenchmarkKernel/loop_nested/interp-lua55-16       	      22	  26266287 ns/op	 8071500 B/op	   31531 allocs/op
+BenchmarkKernel/loop_nested/interp-lua55-16       	      22	  25976409 ns/op	 8071490 B/op	   31531 allocs/op
+BenchmarkKernel/loop_nested/interp-lua55-16       	      20	  25329271 ns/op	 8071495 B/op	   31531 allocs/op
+BenchmarkKernel/loop_nested/jit-lua55-16          	     421	   1526466 ns/op	      8192 code-bytes	       615.0 compile-us	         2.000 units	      31 B/op	       2 allocs/op
+BenchmarkKernel/loop_nested/jit-lua55-16          	     424	   1411023 ns/op	      8192 code-bytes	       429.0 compile-us	         2.000 units	      31 B/op	       2 allocs/op
+BenchmarkKernel/loop_nested/jit-lua55-16          	     369	   1500475 ns/op	      8192 code-bytes	       809.0 compile-us	         2.000 units	      31 B/op	       2 allocs/op
+BenchmarkKernel/calls/interp-lua51-16             	      19	  29692249 ns/op	 4798920 B/op	   18750 allocs/op
+BenchmarkKernel/calls/interp-lua51-16             	      21	  29348327 ns/op	 4798912 B/op	   18750 allocs/op
+BenchmarkKernel/calls/interp-lua51-16             	      19	  28994617 ns/op	 4798902 B/op	   18750 allocs/op
+BenchmarkKernel/calls/jit-lua51-16                	    1432	    443543 ns/op	      4096 code-bytes	       222.0 compile-us	         1.000 units	      47 B/op	       5 allocs/op
+BenchmarkKernel/calls/jit-lua51-16                	    1408	    490395 ns/op	      4096 code-bytes	       232.0 compile-us	         1.000 units	      48 B/op	       5 allocs/op
+BenchmarkKernel/calls/jit-lua51-16                	    1402	    448394 ns/op	      4096 code-bytes	       258.0 compile-us	         1.000 units	      47 B/op	       5 allocs/op
+BenchmarkKernel/calls/interp-lua55-16             	      19	  31766095 ns/op	 4791479 B/op	   18718 allocs/op
+BenchmarkKernel/calls/interp-lua55-16             	      20	  27995222 ns/op	 4791484 B/op	   18718 allocs/op
+BenchmarkKernel/calls/interp-lua55-16             	      20	  28510237 ns/op	 4791478 B/op	   18718 allocs/op
+BenchmarkKernel/calls/jit-lua55-16                	    1270	    479828 ns/op	      4096 code-bytes	       265.0 compile-us	         1.000 units	      23 B/op	       2 allocs/op
+BenchmarkKernel/calls/jit-lua55-16                	    1186	    471237 ns/op	      4096 code-bytes	       249.0 compile-us	         1.000 units	      23 B/op	       2 allocs/op
+BenchmarkKernel/calls/jit-lua55-16                	    1113	    538845 ns/op	      4096 code-bytes	       241.0 compile-us	         1.000 units	      24 B/op	       2 allocs/op
+BenchmarkKernel/fib/interp-lua51-16               	      44	  14049552 ns/op	    4877 B/op	      20 allocs/op
+BenchmarkKernel/fib/interp-lua51-16               	      43	  14066552 ns/op	    4878 B/op	      20 allocs/op
+BenchmarkKernel/fib/interp-lua51-16               	      45	  13827765 ns/op	    4877 B/op	      20 allocs/op
+BenchmarkKernel/fib/jit-lua51-16                  	      43	  13359221 ns/op	         0 code-bytes	         0 compile-us	         0 units	    4878 B/op	      20 allocs/op
+BenchmarkKernel/fib/jit-lua51-16                  	      43	  13471682 ns/op	         0 code-bytes	         0 compile-us	         0 units	    4878 B/op	      20 allocs/op
+BenchmarkKernel/fib/jit-lua51-16                  	      45	  13701118 ns/op	         0 code-bytes	         0 compile-us	         0 units	    4877 B/op	      20 allocs/op
+BenchmarkKernel/fib/interp-lua55-16               	      40	  14455959 ns/op	     428 B/op	       1 allocs/op
+BenchmarkKernel/fib/interp-lua55-16               	      42	  13543672 ns/op	     432 B/op	       1 allocs/op
+BenchmarkKernel/fib/interp-lua55-16               	      39	  13040969 ns/op	     433 B/op	       1 allocs/op
+BenchmarkKernel/fib/jit-lua55-16                  	      45	  13059722 ns/op	         0 code-bytes	         0 compile-us	         0 units	     432 B/op	       1 allocs/op
+BenchmarkKernel/fib/jit-lua55-16                  	      40	  13432758 ns/op	         0 code-bytes	         0 compile-us	         0 units	     428 B/op	       1 allocs/op
+BenchmarkKernel/fib/jit-lua55-16                  	      46	  12783359 ns/op	         0 code-bytes	         0 compile-us	         0 units	     428 B/op	       1 allocs/op
+BenchmarkKernel/table_array/interp-lua51-16       	       9	  58843212 ns/op	32338735 B/op	   56285 allocs/op
+BenchmarkKernel/table_array/interp-lua51-16       	       9	  64420431 ns/op	32338144 B/op	   56285 allocs/op
+BenchmarkKernel/table_array/interp-lua51-16       	       9	  63521213 ns/op	32338119 B/op	   56284 allocs/op
+BenchmarkKernel/table_array/jit-lua51-16          	     156	   3877467 ns/op	     12288 code-bytes	      1265 compile-us	         3.000 units	 8372322 B/op	      61 allocs/op
+BenchmarkKernel/table_array/jit-lua51-16          	     154	   3982512 ns/op	     12288 code-bytes	      1259 compile-us	         3.000 units	 8372347 B/op	      61 allocs/op
+BenchmarkKernel/table_array/jit-lua51-16          	     154	   3946192 ns/op	     12288 code-bytes	      1351 compile-us	         3.000 units	 8372339 B/op	      61 allocs/op
+BenchmarkKernel/table_array/interp-lua55-16       	       9	  57198814 ns/op	32301920 B/op	   56125 allocs/op
+BenchmarkKernel/table_array/interp-lua55-16       	       9	  60713735 ns/op	32301920 B/op	   56125 allocs/op
+BenchmarkKernel/table_array/interp-lua55-16       	       9	  57434795 ns/op	32301932 B/op	   56125 allocs/op
+BenchmarkKernel/table_array/jit-lua55-16          	     139	   4255105 ns/op	     12288 code-bytes	      1044 compile-us	         3.000 units	 8372120 B/op	      49 allocs/op
+BenchmarkKernel/table_array/jit-lua55-16          	     142	   4441721 ns/op	     12288 code-bytes	      1125 compile-us	         3.000 units	 8372088 B/op	      48 allocs/op
+BenchmarkKernel/table_array/jit-lua55-16          	     142	   4191716 ns/op	     12288 code-bytes	      1304 compile-us	         3.000 units	 8372091 B/op	      48 allocs/op
+BenchmarkKernel/table_hash/interp-lua51-16        	      10	  54088625 ns/op	 7197360 B/op	   28120 allocs/op
+BenchmarkKernel/table_hash/interp-lua51-16        	      12	  48311878 ns/op	 7197369 B/op	   28120 allocs/op
+BenchmarkKernel/table_hash/interp-lua51-16        	      12	  46937860 ns/op	 7197369 B/op	   28120 allocs/op
+BenchmarkKernel/table_hash/jit-lua51-16           	     685	    900623 ns/op	      4096 code-bytes	       429.0 compile-us	         1.000 units	     432 B/op	       8 allocs/op
+BenchmarkKernel/table_hash/jit-lua51-16           	     668	    892990 ns/op	      4096 code-bytes	       442.0 compile-us	         1.000 units	     432 B/op	       8 allocs/op
+BenchmarkKernel/table_hash/jit-lua51-16           	     619	   1002020 ns/op	      4096 code-bytes	       473.0 compile-us	         1.000 units	     432 B/op	       8 allocs/op
+BenchmarkKernel/table_hash/interp-lua55-16        	      12	  54799050 ns/op	 7175861 B/op	   28033 allocs/op
+BenchmarkKernel/table_hash/interp-lua55-16        	      12	  46538698 ns/op	 7175852 B/op	   28033 allocs/op
+BenchmarkKernel/table_hash/interp-lua55-16        	      12	  52530020 ns/op	 7175833 B/op	   28033 allocs/op
+BenchmarkKernel/table_hash/jit-lua55-16           	     596	    910276 ns/op	      4096 code-bytes	       466.0 compile-us	         1.000 units	     408 B/op	       5 allocs/op
+BenchmarkKernel/table_hash/jit-lua55-16           	     676	    904773 ns/op	      4096 code-bytes	       433.0 compile-us	         1.000 units	     408 B/op	       5 allocs/op
+BenchmarkKernel/table_hash/jit-lua55-16           	     553	    919434 ns/op	      4096 code-bytes	       425.0 compile-us	         1.000 units	     408 B/op	       5 allocs/op
+BenchmarkKernel/strings/interp-lua51-16           	      20	  31156614 ns/op	 3621741 B/op	  229767 allocs/op
+BenchmarkKernel/strings/interp-lua51-16           	      21	  28287098 ns/op	 3621666 B/op	  229766 allocs/op
+BenchmarkKernel/strings/interp-lua51-16           	      22	  27682588 ns/op	 3621675 B/op	  229767 allocs/op
+BenchmarkKernel/strings/jit-lua51-16              	      21	  30485783 ns/op	      4096 code-bytes	       309.0 compile-us	         1.000 units	 3566645 B/op	  229551 allocs/op
+BenchmarkKernel/strings/jit-lua51-16              	      19	  27620585 ns/op	      4096 code-bytes	       361.0 compile-us	         1.000 units	 3566802 B/op	  229552 allocs/op
+BenchmarkKernel/strings/jit-lua51-16              	      22	  28721528 ns/op	      4096 code-bytes	       353.0 compile-us	         1.000 units	 3566707 B/op	  229552 allocs/op
+BenchmarkKernel/strings/interp-lua55-16           	      44	  15722572 ns/op	 2756214 B/op	  138708 allocs/op
+BenchmarkKernel/strings/interp-lua55-16           	      40	  14840508 ns/op	 2756206 B/op	  138708 allocs/op
+BenchmarkKernel/strings/interp-lua55-16           	      38	  15304402 ns/op	 2756205 B/op	  138708 allocs/op
+BenchmarkKernel/strings/jit-lua55-16              	      37	  14274639 ns/op	      4096 code-bytes	       286.0 compile-us	         1.000 units	 2701827 B/op	  138496 allocs/op
+BenchmarkKernel/strings/jit-lua55-16              	      40	  13714275 ns/op	      4096 code-bytes	       236.0 compile-us	         1.000 units	 2701826 B/op	  138496 allocs/op
+BenchmarkKernel/strings/jit-lua55-16              	      44	  14210146 ns/op	      4096 code-bytes	       258.0 compile-us	         1.000 units	 2701826 B/op	  138496 allocs/op
+BenchmarkKernel/metamethods/interp-lua51-16       	       9	  59320117 ns/op	35998241 B/op	  209374 allocs/op
+BenchmarkKernel/metamethods/interp-lua51-16       	       9	  62386069 ns/op	35998216 B/op	  209374 allocs/op
+BenchmarkKernel/metamethods/interp-lua51-16       	       8	  62997358 ns/op	35998220 B/op	  209374 allocs/op
+BenchmarkKernel/metamethods/jit-lua51-16          	       9	  59600794 ns/op	         0 code-bytes	       136.0 compile-us	         1.000 units	35998254 B/op	  209374 allocs/op
+BenchmarkKernel/metamethods/jit-lua51-16          	       9	  63854829 ns/op	         0 code-bytes	       139.0 compile-us	         1.000 units	35998266 B/op	  209374 allocs/op
+BenchmarkKernel/metamethods/jit-lua51-16          	       9	  67350298 ns/op	         0 code-bytes	       138.0 compile-us	         1.000 units	35998279 B/op	  209374 allocs/op
+BenchmarkKernel/metamethods/interp-lua55-16       	       9	  64855917 ns/op	35980289 B/op	  209301 allocs/op
+BenchmarkKernel/metamethods/interp-lua55-16       	       9	  59069372 ns/op	35980302 B/op	  209301 allocs/op
+BenchmarkKernel/metamethods/interp-lua55-16       	       9	  59723481 ns/op	35980314 B/op	  209301 allocs/op
+BenchmarkKernel/metamethods/jit-lua55-16          	       9	  59040442 ns/op	         0 code-bytes	       119.0 compile-us	         1.000 units	35980352 B/op	  209302 allocs/op
+BenchmarkKernel/metamethods/jit-lua55-16          	       9	  61801716 ns/op	         0 code-bytes	       121.0 compile-us	         1.000 units	35980339 B/op	  209301 allocs/op
+BenchmarkKernel/metamethods/jit-lua55-16          	       9	  67047915 ns/op	         0 code-bytes	       125.0 compile-us	         1.000 units	35980352 B/op	  209302 allocs/op
+BenchmarkKernel/closures/interp-lua51-16          	      14	  44939381 ns/op	28797940 B/op	  618746 allocs/op
+BenchmarkKernel/closures/interp-lua51-16          	      12	  43288824 ns/op	28797924 B/op	  618746 allocs/op
+BenchmarkKernel/closures/interp-lua51-16          	      14	  42203672 ns/op	28797932 B/op	  618746 allocs/op
+BenchmarkKernel/closures/jit-lua51-16             	      13	  42633809 ns/op	         0 code-bytes	       629.0 compile-us	         4.000 units	28797955 B/op	  618747 allocs/op
+BenchmarkKernel/closures/jit-lua51-16             	      13	  44632011 ns/op	         0 code-bytes	       632.0 compile-us	         4.000 units	28797964 B/op	  618747 allocs/op
+BenchmarkKernel/closures/jit-lua51-16             	      13	  45714592 ns/op	         0 code-bytes	       645.0 compile-us	         4.000 units	28797947 B/op	  618746 allocs/op
+BenchmarkKernel/closures/interp-lua55-16          	      14	  45183416 ns/op	28783318 B/op	  618686 allocs/op
+BenchmarkKernel/closures/interp-lua55-16          	      14	  39788767 ns/op	28783318 B/op	  618686 allocs/op
+BenchmarkKernel/closures/interp-lua55-16          	      14	  40070474 ns/op	28783318 B/op	  618686 allocs/op
+BenchmarkKernel/closures/jit-lua55-16             	      14	  41600881 ns/op	         0 code-bytes	       531.0 compile-us	         4.000 units	28783369 B/op	  618687 allocs/op
+BenchmarkKernel/closures/jit-lua55-16             	      13	  42114883 ns/op	         0 code-bytes	       643.0 compile-us	         4.000 units	28783325 B/op	  618686 allocs/op
+BenchmarkKernel/closures/jit-lua55-16             	      13	  46097796 ns/op	         0 code-bytes	       544.0 compile-us	         4.000 units	28783360 B/op	  618687 allocs/op
+BenchmarkKernel/mandelbrot/interp-lua51-16        	      10	  53036401 ns/op	19114804 B/op	   74864 allocs/op
+BenchmarkKernel/mandelbrot/interp-lua51-16        	      10	  53519293 ns/op	19114827 B/op	   74864 allocs/op
+BenchmarkKernel/mandelbrot/interp-lua51-16        	      10	  54179641 ns/op	19114838 B/op	   74864 allocs/op
+BenchmarkKernel/mandelbrot/jit-lua51-16           	     613	    862220 ns/op	      8192 code-bytes	      1927 compile-us	         3.000 units	     139 B/op	       5 allocs/op
+BenchmarkKernel/mandelbrot/jit-lua51-16           	     622	    929188 ns/op	      8192 code-bytes	      1556 compile-us	         3.000 units	     139 B/op	       5 allocs/op
+BenchmarkKernel/mandelbrot/jit-lua51-16           	     724	    842969 ns/op	      8192 code-bytes	      1546 compile-us	         3.000 units	     140 B/op	       5 allocs/op
+BenchmarkKernel/mandelbrot/interp-lua55-16        	      10	  52959313 ns/op	19106019 B/op	   74633 allocs/op
+BenchmarkKernel/mandelbrot/interp-lua55-16        	      10	  52646275 ns/op	19106030 B/op	   74633 allocs/op
+BenchmarkKernel/mandelbrot/interp-lua55-16        	      10	  53848460 ns/op	19106052 B/op	   74633 allocs/op
+BenchmarkKernel/mandelbrot/jit-lua55-16           	     681	    938451 ns/op	      8192 code-bytes	      1515 compile-us	         3.000 units	      99 B/op	       0 allocs/op
+BenchmarkKernel/mandelbrot/jit-lua55-16           	     704	    856281 ns/op	      8192 code-bytes	      1420 compile-us	         3.000 units	     100 B/op	       0 allocs/op
+BenchmarkKernel/mandelbrot/jit-lua55-16           	     723	    896152 ns/op	      8192 code-bytes	      1467 compile-us	         3.000 units	     100 B/op	       0 allocs/op
+BenchmarkKernel/sieve/interp-lua51-16             	       9	  62734490 ns/op	25872666 B/op	   68182 allocs/op
+BenchmarkKernel/sieve/interp-lua51-16             	       8	  62978792 ns/op	25872682 B/op	   68182 allocs/op
+BenchmarkKernel/sieve/interp-lua51-16             	       9	  67443417 ns/op	25872679 B/op	   68182 allocs/op
+BenchmarkKernel/sieve/jit-lua51-16                	     100	   5392261 ns/op	     12288 code-bytes	      1932 compile-us	         3.000 units	 8370355 B/op	      45 allocs/op
+BenchmarkKernel/sieve/jit-lua51-16                	     118	   4738737 ns/op	     12288 code-bytes	      1808 compile-us	         3.000 units	 8370361 B/op	      45 allocs/op
+BenchmarkKernel/sieve/jit-lua51-16                	     123	   5232935 ns/op	     12288 code-bytes	      1765 compile-us	         3.000 units	 8370359 B/op	      45 allocs/op
+BenchmarkKernel/sieve/interp-lua55-16             	       7	  74897777 ns/op	25835638 B/op	   67919 allocs/op
+BenchmarkKernel/sieve/interp-lua55-16             	       8	  66599614 ns/op	25835646 B/op	   67919 allocs/op
+BenchmarkKernel/sieve/interp-lua55-16             	       7	  73783918 ns/op	25835622 B/op	   67919 allocs/op
+BenchmarkKernel/sieve/jit-lua55-16                	     100	   6526156 ns/op	     12288 code-bytes	      2191 compile-us	         3.000 units	 8370181 B/op	      35 allocs/op
+BenchmarkKernel/sieve/jit-lua55-16                	      94	   6761977 ns/op	     12288 code-bytes	      1828 compile-us	         3.000 units	 8370164 B/op	      35 allocs/op
+BenchmarkKernel/sieve/jit-lua55-16                	      88	   7483188 ns/op	     12288 code-bytes	      3153 compile-us	         3.000 units	 8370177 B/op	      35 allocs/op
+BenchmarkKernel/math_calls/interp-lua51-16        	       3	 180421339 ns/op	16797674 B/op	  937493 allocs/op
+BenchmarkKernel/math_calls/interp-lua51-16        	       3	 179831393 ns/op	16797685 B/op	  937493 allocs/op
+BenchmarkKernel/math_calls/interp-lua51-16        	       3	 181992524 ns/op	16797690 B/op	  937493 allocs/op
+BenchmarkKernel/math_calls/jit-lua51-16           	     562	   1064447 ns/op	      4096 code-bytes	       372.0 compile-us	         1.000 units	      72 B/op	       7 allocs/op
+BenchmarkKernel/math_calls/jit-lua51-16           	     578	   1034847 ns/op	      4096 code-bytes	       344.0 compile-us	         1.000 units	      72 B/op	       7 allocs/op
+BenchmarkKernel/math_calls/jit-lua51-16           	     574	   1053099 ns/op	      4096 code-bytes	       363.0 compile-us	         1.000 units	      72 B/op	       7 allocs/op
+BenchmarkKernel/math_calls/interp-lua55-16        	       3	 195195549 ns/op	16259408 B/op	  871160 allocs/op
+BenchmarkKernel/math_calls/interp-lua55-16        	       3	 173603035 ns/op	16259408 B/op	  871160 allocs/op
+BenchmarkKernel/math_calls/interp-lua55-16        	       3	 181025673 ns/op	16259488 B/op	  871160 allocs/op
+BenchmarkKernel/math_calls/jit-lua55-16           	     409	   1435499 ns/op	      4096 code-bytes	       362.0 compile-us	         1.000 units	      39 B/op	       3 allocs/op
+BenchmarkKernel/math_calls/jit-lua55-16           	     422	   1434054 ns/op	      4096 code-bytes	       376.0 compile-us	         1.000 units	      39 B/op	       3 allocs/op
+BenchmarkKernel/math_calls/jit-lua55-16           	     411	   1419368 ns/op	      4096 code-bytes	       371.0 compile-us	         1.000 units	      38 B/op	       3 allocs/op
+BenchmarkKernel/go_callback/interp-lua51-16       	      13	  45110190 ns/op	 7198947 B/op	  318750 allocs/op
+BenchmarkKernel/go_callback/interp-lua51-16       	      12	  47996172 ns/op	 7198948 B/op	  318750 allocs/op
+BenchmarkKernel/go_callback/interp-lua51-16       	      12	  57202787 ns/op	 7198929 B/op	  318750 allocs/op
+BenchmarkKernel/go_callback/jit-lua51-16          	      12	  46715310 ns/op	      4096 code-bytes	       224.0 compile-us	         1.000 units	 4799049 B/op	  309376 allocs/op
+BenchmarkKernel/go_callback/jit-lua51-16          	      13	  46936561 ns/op	      4096 code-bytes	       204.0 compile-us	         1.000 units	 4799092 B/op	  309376 allocs/op
+BenchmarkKernel/go_callback/jit-lua51-16          	      12	  45804950 ns/op	      4096 code-bytes	       231.0 compile-us	         1.000 units	 4799034 B/op	  309376 allocs/op
+BenchmarkKernel/go_callback/interp-lua55-16       	      12	  51847903 ns/op	 7191720 B/op	  318719 allocs/op
+BenchmarkKernel/go_callback/interp-lua55-16       	      12	  46413669 ns/op	 7191734 B/op	  318719 allocs/op
+BenchmarkKernel/go_callback/interp-lua55-16       	      12	  45803786 ns/op	 7191740 B/op	  318719 allocs/op
+BenchmarkKernel/go_callback/jit-lua55-16          	      14	  40224779 ns/op	      4096 code-bytes	       182.0 compile-us	         1.000 units	 4791848 B/op	  309345 allocs/op
+BenchmarkKernel/go_callback/jit-lua55-16          	      14	  42377032 ns/op	      4096 code-bytes	       217.0 compile-us	         1.000 units	 4791842 B/op	  309345 allocs/op
+BenchmarkKernel/go_callback/jit-lua55-16          	      14	  40658346 ns/op	      4096 code-bytes	       166.0 compile-us	         1.000 units	 4791840 B/op	  309345 allocs/op
+BenchmarkKernel/objects/interp-lua51-16           	       4	 138388212 ns/op	12745720 B/op	   57567 allocs/op
+BenchmarkKernel/objects/interp-lua51-16           	       4	 158568258 ns/op	12745748 B/op	   57567 allocs/op
+BenchmarkKernel/objects/interp-lua51-16           	       4	 147075721 ns/op	12745776 B/op	   57567 allocs/op
+BenchmarkKernel/objects/jit-lua51-16              	     165	   3574864 ns/op	      8192 code-bytes	      2168 compile-us	         3.000 units	   48849 B/op	     223 allocs/op
+BenchmarkKernel/objects/jit-lua51-16              	     152	   3559038 ns/op	      8192 code-bytes	      2344 compile-us	         3.000 units	   48849 B/op	     223 allocs/op
+BenchmarkKernel/objects/jit-lua51-16              	     163	   3768733 ns/op	      8192 code-bytes	      2356 compile-us	         3.000 units	   48849 B/op	     223 allocs/op
+BenchmarkKernel/objects/interp-lua55-16           	       4	 142453448 ns/op	12674600 B/op	   49630 allocs/op
+BenchmarkKernel/objects/interp-lua55-16           	       4	 164743414 ns/op	12674568 B/op	   49629 allocs/op
+BenchmarkKernel/objects/interp-lua55-16           	       4	 149165454 ns/op	12674512 B/op	   49629 allocs/op
+BenchmarkKernel/objects/jit-lua55-16              	     138	   4223709 ns/op	      8192 code-bytes	      3825 compile-us	         5.000 units	   60162 B/op	     365 allocs/op
+BenchmarkKernel/objects/jit-lua55-16              	     140	   4225517 ns/op	      8192 code-bytes	      4027 compile-us	         5.000 units	   60056 B/op	     365 allocs/op
+BenchmarkKernel/objects/jit-lua55-16              	     141	   4103317 ns/op	      8192 code-bytes	      3888 compile-us	         5.000 units	   60003 B/op	     365 allocs/op
+BenchmarkKernel/module_state/interp-lua51-16      	       1	 669540810 ns/op	43996928 B/op	 2109366 allocs/op
+BenchmarkKernel/module_state/interp-lua51-16      	       1	 653908239 ns/op	43996896 B/op	 2109366 allocs/op
+BenchmarkKernel/module_state/interp-lua51-16      	       1	 604404828 ns/op	43996832 B/op	 2109365 allocs/op
+BenchmarkKernel/module_state/jit-lua51-16         	      33	  16790747 ns/op	      8192 code-bytes	      2220 compile-us	         2.000 units	      87 B/op	       9 allocs/op
+BenchmarkKernel/module_state/jit-lua51-16         	      36	  18275517 ns/op	      8192 code-bytes	      1500 compile-us	         2.000 units	      93 B/op	       9 allocs/op
+BenchmarkKernel/module_state/jit-lua51-16         	      36	  16466736 ns/op	      8192 code-bytes	      1528 compile-us	         2.000 units	      93 B/op	       9 allocs/op
+BenchmarkKernel/module_state/interp-lua55-16      	       2	 401668595 ns/op	35974808 B/op	 1108535 allocs/op
+BenchmarkKernel/module_state/interp-lua55-16      	       2	 428320848 ns/op	35974880 B/op	 1108535 allocs/op
+BenchmarkKernel/module_state/interp-lua55-16      	       2	 438515512 ns/op	35974904 B/op	 1108536 allocs/op
+BenchmarkKernel/module_state/jit-lua55-16         	      82	   7248767 ns/op	      8192 code-bytes	      1309 compile-us	         2.000 units	      44 B/op	       4 allocs/op
+BenchmarkKernel/module_state/jit-lua55-16         	      86	   7185259 ns/op	      8192 code-bytes	      1156 compile-us	         2.000 units	      43 B/op	       4 allocs/op
+BenchmarkKernel/module_state/jit-lua55-16         	      88	   6679662 ns/op	      8192 code-bytes	      1183 compile-us	         2.000 units	      43 B/op	       4 allocs/op
+BenchmarkKernel/linked_list/interp-lua51-16       	      54	  10897816 ns/op	 1943672 B/op	    8288 allocs/op
+BenchmarkKernel/linked_list/interp-lua51-16       	      57	  12279653 ns/op	 1943665 B/op	    8288 allocs/op
+BenchmarkKernel/linked_list/interp-lua51-16       	      46	  11382167 ns/op	 1943666 B/op	    8288 allocs/op
+BenchmarkKernel/linked_list/jit-lua51-16          	     321	   2196643 ns/op	      4096 code-bytes	      1235 compile-us	         5.000 units	  352232 B/op	    2072 allocs/op
+BenchmarkKernel/linked_list/jit-lua51-16          	     283	   2254968 ns/op	      4096 code-bytes	      1430 compile-us	         5.000 units	  352018 B/op	    2071 allocs/op
+BenchmarkKernel/linked_list/jit-lua51-16          	     313	   2290725 ns/op	      4096 code-bytes	      1280 compile-us	         5.000 units	  352191 B/op	    2071 allocs/op
+BenchmarkKernel/linked_list/interp-lua55-16       	      50	  11633965 ns/op	 1936033 B/op	    8252 allocs/op
+BenchmarkKernel/linked_list/interp-lua55-16       	      51	  11028316 ns/op	 1936035 B/op	    8252 allocs/op
+BenchmarkKernel/linked_list/interp-lua55-16       	      57	  10283811 ns/op	 1936029 B/op	    8252 allocs/op
+BenchmarkKernel/linked_list/jit-lua55-16          	     327	   2141512 ns/op	      4096 code-bytes	      1093 compile-us	         5.000 units	  344044 B/op	    2033 allocs/op
+BenchmarkKernel/linked_list/jit-lua55-16          	     307	   2266495 ns/op	      4096 code-bytes	      1176 compile-us	         5.000 units	  343942 B/op	    2032 allocs/op
+BenchmarkKernel/linked_list/jit-lua55-16          	     226	   2447575 ns/op	      4096 code-bytes	      1524 compile-us	         5.000 units	  343344 B/op	    2030 allocs/op
+BenchmarkKernel/string_scan/interp-lua51-16       	       6	 107233441 ns/op	 4158904 B/op	  210000 allocs/op
+BenchmarkKernel/string_scan/interp-lua51-16       	       6	 122100196 ns/op	 4158922 B/op	  210000 allocs/op
+BenchmarkKernel/string_scan/interp-lua51-16       	       6	  94809562 ns/op	 4158904 B/op	  210000 allocs/op
+BenchmarkKernel/string_scan/jit-lua51-16          	     153	   4291947 ns/op	      4096 code-bytes	      1732 compile-us	         1.000 units	      88 B/op	       6 allocs/op
+BenchmarkKernel/string_scan/jit-lua51-16          	     154	   3941434 ns/op	      4096 code-bytes	      1039 compile-us	         1.000 units	      87 B/op	       6 allocs/op
+BenchmarkKernel/string_scan/jit-lua51-16          	     146	   4802570 ns/op	      4096 code-bytes	       988.0 compile-us	         1.000 units	      88 B/op	       6 allocs/op
+BenchmarkKernel/string_scan/interp-lua55-16       	       8	  67883819 ns/op	 2530192 B/op	    9885 allocs/op
+BenchmarkKernel/string_scan/interp-lua55-16       	       9	  60869566 ns/op	 2530206 B/op	    9885 allocs/op
+BenchmarkKernel/string_scan/interp-lua55-16       	       9	  62735689 ns/op	 2530206 B/op	    9885 allocs/op
+BenchmarkKernel/string_scan/jit-lua55-16          	     152	   3769217 ns/op	      4096 code-bytes	       836.0 compile-us	         1.000 units	      56 B/op	       2 allocs/op
+BenchmarkKernel/string_scan/jit-lua55-16          	     146	   3997100 ns/op	      4096 code-bytes	      1023 compile-us	         1.000 units	      56 B/op	       2 allocs/op
+BenchmarkKernel/string_scan/jit-lua55-16          	     151	   3970390 ns/op	      4096 code-bytes	       918.0 compile-us	         1.000 units	      54 B/op	       2 allocs/op
+BenchmarkKernel/stencil/interp-lua51-16           	       3	 171460472 ns/op	45882992 B/op	  109195 allocs/op
+BenchmarkKernel/stencil/interp-lua51-16           	       3	 173148061 ns/op	45882880 B/op	  109194 allocs/op
+BenchmarkKernel/stencil/interp-lua51-16           	       4	 155276010 ns/op	45882880 B/op	  109194 allocs/op
+BenchmarkKernel/stencil/jit-lua51-16              	      81	   7966959 ns/op	     12288 code-bytes	      1535 compile-us	         3.000 units	 8375556 B/op	      84 allocs/op
+BenchmarkKernel/stencil/jit-lua51-16              	      73	   8584977 ns/op	     12288 code-bytes	      1718 compile-us	         3.000 units	 8376123 B/op	      88 allocs/op
+BenchmarkKernel/stencil/jit-lua51-16              	      67	  10146066 ns/op	     12288 code-bytes	      1827 compile-us	         3.000 units	 8376659 B/op	      92 allocs/op
+BenchmarkKernel/stencil/interp-lua55-16           	       3	 185213650 ns/op	38636661 B/op	   80870 allocs/op
+BenchmarkKernel/stencil/interp-lua55-16           	       3	 181849655 ns/op	38636661 B/op	   80870 allocs/op
+BenchmarkKernel/stencil/interp-lua55-16           	       3	 169257481 ns/op	38636693 B/op	   80870 allocs/op
+BenchmarkKernel/stencil/jit-lua55-16              	      81	   7762869 ns/op	     12288 code-bytes	      1535 compile-us	         3.000 units	 8374593 B/op	      64 allocs/op
+BenchmarkKernel/stencil/jit-lua55-16              	      88	   7392148 ns/op	     12288 code-bytes	      1465 compile-us	         3.000 units	 8374233 B/op	      62 allocs/op
+BenchmarkKernel/stencil/jit-lua55-16              	      87	   7463879 ns/op	     12288 code-bytes	      1465 compile-us	         3.000 units	 8374288 B/op	      62 allocs/op
+BenchmarkKernel/binary_search/interp-lua51-16     	       3	 181980132 ns/op	30401824 B/op	 1039416 allocs/op
+BenchmarkKernel/binary_search/interp-lua51-16     	       3	 189700804 ns/op	30401834 B/op	 1039416 allocs/op
+BenchmarkKernel/binary_search/interp-lua51-16     	       3	 204178690 ns/op	30401818 B/op	 1039416 allocs/op
+BenchmarkKernel/binary_search/jit-lua51-16        	      68	   8772451 ns/op	     12288 code-bytes	      1820 compile-us	         3.000 units	   25653 B/op	      21 allocs/op
+BenchmarkKernel/binary_search/jit-lua51-16        	      68	   8744533 ns/op	     12288 code-bytes	      1802 compile-us	         3.000 units	   25653 B/op	      21 allocs/op
+BenchmarkKernel/binary_search/jit-lua51-16        	      68	   8755065 ns/op	     12288 code-bytes	      1824 compile-us	         3.000 units	   25653 B/op	      21 allocs/op
+BenchmarkKernel/binary_search/interp-lua55-16     	       3	 192752442 ns/op	18880357 B/op	  811706 allocs/op
+BenchmarkKernel/binary_search/interp-lua55-16     	       3	 204180787 ns/op	18880480 B/op	  811707 allocs/op
+BenchmarkKernel/binary_search/interp-lua55-16     	       3	 187549950 ns/op	18880352 B/op	  811705 allocs/op
+BenchmarkKernel/binary_search/jit-lua55-16        	      60	  10133398 ns/op	     12288 code-bytes	      1643 compile-us	         3.000 units	   25483 B/op	      15 allocs/op
+BenchmarkKernel/binary_search/jit-lua55-16        	      57	  10015990 ns/op	     12288 code-bytes	      1682 compile-us	         3.000 units	   25481 B/op	      15 allocs/op
+BenchmarkKernel/binary_search/jit-lua55-16        	      60	   9961983 ns/op	     12288 code-bytes	      1596 compile-us	         3.000 units	   25483 B/op	      15 allocs/op
+BenchmarkCold/arith_int/interp-lua51-16           	      19	  29585428 ns/op	 3392441 B/op	   13002 allocs/op
+BenchmarkCold/arith_int/interp-lua51-16           	      19	  29467738 ns/op	 3392441 B/op	   13002 allocs/op
+BenchmarkCold/arith_int/interp-lua51-16           	      19	  29419553 ns/op	 3392450 B/op	   13002 allocs/op
+BenchmarkCold/arith_int/jit-lua51-16              	     236	   2439044 ns/op	  468323 B/op	    2243 allocs/op
+BenchmarkCold/arith_int/jit-lua51-16              	     264	   2386620 ns/op	  468326 B/op	    2243 allocs/op
+BenchmarkCold/arith_int/jit-lua51-16              	     238	   2354653 ns/op	  468331 B/op	    2243 allocs/op
+BenchmarkCold/arith_int/interp-lua55-16           	      62	   9684755 ns/op	 3369795 B/op	   12925 allocs/op
+BenchmarkCold/arith_int/interp-lua55-16           	      54	   9783340 ns/op	 3369797 B/op	   12925 allocs/op
+BenchmarkCold/arith_int/interp-lua55-16           	      56	  10231598 ns/op	 3369799 B/op	   12925 allocs/op
+BenchmarkCold/arith_int/jit-lua55-16              	     302	   2088144 ns/op	  335011 B/op	    1384 allocs/op
+BenchmarkCold/arith_int/jit-lua55-16              	     290	   2095556 ns/op	  335014 B/op	    1384 allocs/op
+BenchmarkCold/arith_int/jit-lua55-16              	     303	   2130404 ns/op	  335006 B/op	    1384 allocs/op
+BenchmarkCold/mandelbrot/interp-lua51-16          	     706	    788805 ns/op	  396234 B/op	    1668 allocs/op
+BenchmarkCold/mandelbrot/interp-lua51-16          	     858	    724582 ns/op	  396235 B/op	    1668 allocs/op
+BenchmarkCold/mandelbrot/interp-lua51-16          	     844	    721169 ns/op	  396235 B/op	    1668 allocs/op
+BenchmarkCold/mandelbrot/jit-lua51-16             	     403	   1371733 ns/op	 1087112 B/op	    5461 allocs/op
+BenchmarkCold/mandelbrot/jit-lua51-16             	     459	   1294814 ns/op	 1087128 B/op	    5461 allocs/op
+BenchmarkCold/mandelbrot/jit-lua51-16             	     464	   1352761 ns/op	 1087136 B/op	    5461 allocs/op
+BenchmarkCold/mandelbrot/interp-lua55-16          	     807	    725136 ns/op	  396194 B/op	    1629 allocs/op
+BenchmarkCold/mandelbrot/interp-lua55-16          	     727	    789720 ns/op	  396194 B/op	    1629 allocs/op
+BenchmarkCold/mandelbrot/interp-lua55-16          	     778	    714106 ns/op	  396195 B/op	    1629 allocs/op
+BenchmarkCold/mandelbrot/jit-lua55-16             	     481	   1281906 ns/op	 1030598 B/op	    4842 allocs/op
+BenchmarkCold/mandelbrot/jit-lua55-16             	     448	   1290971 ns/op	 1030601 B/op	    4842 allocs/op
+BenchmarkCold/mandelbrot/jit-lua55-16             	     444	   1407582 ns/op	 1030601 B/op	    4842 allocs/op
+BenchmarkCold/strings/interp-lua51-16             	     189	   3152422 ns/op	  553011 B/op	   23045 allocs/op
+BenchmarkCold/strings/interp-lua51-16             	     178	   3218816 ns/op	  553004 B/op	   23045 allocs/op
+BenchmarkCold/strings/interp-lua51-16             	     194	   3032572 ns/op	  553011 B/op	   23045 allocs/op
+BenchmarkCold/strings/jit-lua51-16                	     170	   3627571 ns/op	  776207 B/op	   24757 allocs/op
+BenchmarkCold/strings/jit-lua51-16                	     160	   3344175 ns/op	  776237 B/op	   24757 allocs/op
+BenchmarkCold/strings/jit-lua51-16                	     186	   3482536 ns/op	  776219 B/op	   24757 allocs/op
+BenchmarkCold/strings/interp-lua55-16             	     382	   1657401 ns/op	  462841 B/op	   14380 allocs/op
+BenchmarkCold/strings/interp-lua55-16             	     391	   1576379 ns/op	  462842 B/op	   14380 allocs/op
+BenchmarkCold/strings/interp-lua55-16             	     406	   1504001 ns/op	  462842 B/op	   14380 allocs/op
+BenchmarkCold/strings/jit-lua55-16                	     331	   1843585 ns/op	  645009 B/op	   15776 allocs/op
+BenchmarkCold/strings/jit-lua55-16                	     312	   2051289 ns/op	  645009 B/op	   15776 allocs/op
+BenchmarkCold/strings/jit-lua55-16                	     289	   2053869 ns/op	  645006 B/op	   15775 allocs/op
+BenchmarkGoToLua/interp-lua51-16                  	 4674108	       129.1 ns/op	      23 B/op	       2 allocs/op
+BenchmarkGoToLua/interp-lua51-16                  	 3746616	       141.7 ns/op	      23 B/op	       2 allocs/op
+BenchmarkGoToLua/interp-lua51-16                  	 4725296	       126.3 ns/op	      23 B/op	       2 allocs/op
+BenchmarkGoToLua/jit-lua51-16                     	 4719145	       124.7 ns/op	      23 B/op	       2 allocs/op
+BenchmarkGoToLua/jit-lua51-16                     	 4803381	       132.2 ns/op	      23 B/op	       2 allocs/op
+BenchmarkGoToLua/jit-lua51-16                     	 4338214	       141.0 ns/op	      23 B/op	       2 allocs/op
+BenchmarkGoToLua/interp-lua55-16                  	 4524782	       131.1 ns/op	      15 B/op	       1 allocs/op
+BenchmarkGoToLua/interp-lua55-16                  	 4751827	       120.8 ns/op	      15 B/op	       1 allocs/op
+BenchmarkGoToLua/interp-lua55-16                  	 4291226	       123.3 ns/op	      15 B/op	       1 allocs/op
+BenchmarkGoToLua/jit-lua55-16                     	 4737760	       132.2 ns/op	      15 B/op	       1 allocs/op
+BenchmarkGoToLua/jit-lua55-16                     	 5035854	       134.4 ns/op	      15 B/op	       1 allocs/op
+BenchmarkGoToLua/jit-lua55-16                     	 4448612	       135.8 ns/op	      15 B/op	       1 allocs/op
+BenchmarkNewState/interp-lua51-16                 	   13118	     44796 ns/op	  145360 B/op	     302 allocs/op
+BenchmarkNewState/interp-lua51-16                 	   10000	     50299 ns/op	  145360 B/op	     302 allocs/op
+BenchmarkNewState/interp-lua51-16                 	   10000	     61770 ns/op	  145360 B/op	     302 allocs/op
+BenchmarkNewState/jit-lua51-16                    	   12513	     44779 ns/op	  145720 B/op	     307 allocs/op
+BenchmarkNewState/jit-lua51-16                    	   13342	     45259 ns/op	  145720 B/op	     307 allocs/op
+BenchmarkNewState/jit-lua51-16                    	   13375	     44833 ns/op	  145720 B/op	     307 allocs/op
+BenchmarkNewState/interp-lua55-16                 	   10000	     50412 ns/op	  147016 B/op	     334 allocs/op
+BenchmarkNewState/interp-lua55-16                 	   10000	     51726 ns/op	  147016 B/op	     334 allocs/op
+BenchmarkNewState/interp-lua55-16                 	   10000	     50983 ns/op	  147016 B/op	     334 allocs/op
+BenchmarkNewState/jit-lua55-16                    	   10000	     53176 ns/op	  147376 B/op	     339 allocs/op
+BenchmarkNewState/jit-lua55-16                    	   10000	     50786 ns/op	  147376 B/op	     339 allocs/op
+BenchmarkNewState/jit-lua55-16                    	   10000	     50855 ns/op	  147376 B/op	     339 allocs/op
+BenchmarkPool/interp-lua51-16                     	  149472	      4437 ns/op	    1906 B/op	      12 allocs/op
+BenchmarkPool/interp-lua51-16                     	  121983	      4282 ns/op	    1914 B/op	      12 allocs/op
+BenchmarkPool/interp-lua51-16                     	  148306	      4661 ns/op	    1908 B/op	      12 allocs/op
+BenchmarkPool/jit-lua51-16                        	 1283410	       476.0 ns/op	      53 B/op	       5 allocs/op
+BenchmarkPool/jit-lua51-16                        	 1340364	       524.7 ns/op	      54 B/op	       5 allocs/op
+BenchmarkPool/jit-lua51-16                        	 1145640	       474.9 ns/op	      54 B/op	       5 allocs/op
+BenchmarkPool/interp-lua55-16                     	  440636	      1331 ns/op	       7 B/op	       0 allocs/op
+BenchmarkPool/interp-lua55-16                     	  352716	      1526 ns/op	       9 B/op	       0 allocs/op
+BenchmarkPool/interp-lua55-16                     	  413637	      1388 ns/op	       7 B/op	       0 allocs/op
+BenchmarkPool/jit-lua55-16                        	 1982607	       344.9 ns/op	       2 B/op	       0 allocs/op
+BenchmarkPool/jit-lua55-16                        	 1814786	       336.7 ns/op	       2 B/op	       0 allocs/op
+BenchmarkPool/jit-lua55-16                        	 1943634	       305.0 ns/op	       2 B/op	       0 allocs/op
 PASS
-ok  	github.com/yuin/gopher-lua/benchmarks	328.126s
+ok  	github.com/yuin/gopher-lua/benchmarks	311.051s

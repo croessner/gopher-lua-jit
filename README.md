@@ -112,9 +112,9 @@ methodology in [docs/benchmarks.md](docs/benchmarks.md)):
   field access and state creation are somewhat faster),
 - the JIT speeds up loops over numbers, arrays, fields, objects with
   methods, module-level tables, string scanning and calls of small Lua
-  and library functions by one to two orders of magnitude (8x to 170x on
-  the kernels; 2x to 16x faster than the PUC-Rio Lua 5.5 interpreter,
-  on par with to 6x behind LuaJIT),
+  and library functions by one to two orders of magnitude (6x to 145x on
+  the kernels; 1.6x to 37x faster than the PUC-Rio Lua 5.5 interpreter;
+  between on par with and 3x behind LuaJIT),
 - code dominated by allocation (string building, tables or closures
   created in the loop), recursion, metamethods or calls into Go is **not**
   accelerated by the JIT and runs at interpreter speed.
