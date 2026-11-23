@@ -152,9 +152,15 @@ type LTable struct {
 	// other hash keys, which live in dict.
 	fields     []tableField
 	fieldIndex []uint32
-	dict       map[LValue]LValue
-	keys       []LValue
-	k2i        map[LValue]int
+	// fieldKeys caches the keys of the fields as Lua values, by position,
+	// for traversals (converting a string to a Lua value allocates). It
+	// is nil until the table is traversed a second time (walked marks
+	// the first), so that a table that is traversed once pays nothing.
+	fieldKeys []LValue
+	walked    bool
+	dict      map[LValue]LValue
+	keys      []LValue
+	k2i       map[LValue]int
 
 	// iarr and farr are the unboxed array parts used when akind is
 	// arrayKindInt or arrayKindFloat (see table.go).

@@ -185,7 +185,37 @@ func (tb *LTable) intKey(i int) LValue {
 	if tb.intKeys {
 		return boxInt(int64(i))
 	}
+	if i >= 0 && i < len(preloads) {
+		return preloads[i]
+	}
 	return LNumber(i)
+}
+
+// beginWalk notes the start of a traversal. From the second traversal
+// of a table on, the keys of its fields are kept as Lua values.
+func (tb *LTable) beginWalk() {
+	switch {
+	case !tb.walked:
+		tb.walked = true
+	case tb.fieldKeys == nil && len(tb.fields) > 0:
+		tb.fieldKeys = make([]LValue, len(tb.fields))
+	}
+}
+
+// fieldKey returns the key of the field at position i as a Lua value.
+func (tb *LTable) fieldKey(i int) LValue {
+	if tb.fieldKeys == nil {
+		return LString(tb.fields[i].key)
+	}
+	for len(tb.fieldKeys) < len(tb.fields) {
+		tb.fieldKeys = append(tb.fieldKeys, nil) // fields added since
+	}
+	key := tb.fieldKeys[i]
+	if key == nil {
+		key = LString(tb.fields[i].key)
+		tb.fieldKeys[i] = key
+	}
+	return key
 }
 
 // normKey converts a number key to the canonical form used by the hash
@@ -803,6 +833,7 @@ func (tb *LTable) RawGetString(key string) LValue {
 
 // ForEach iterates over this table of elements, yielding each in turn to a given function.
 func (tb *LTable) ForEach(cb func(LValue, LValue)) {
+	tb.beginWalk()
 	switch tb.akind {
 	case arrayKindInt, arrayKindBool:
 		for i := 0; i < len(tb.iarr); i++ {
@@ -828,7 +859,7 @@ func (tb *LTable) ForEach(cb func(LValue, LValue)) {
 	}
 	for i := 0; i < len(tb.fields); i++ {
 		if f := &tb.fields[i]; !f.removed() {
-			cb(LString(f.key), f.get())
+			cb(tb.fieldKey(i), f.get())
 		}
 	}
 	if tb.dict != nil {
@@ -845,6 +876,7 @@ func (tb *LTable) Next(key LValue) (LValue, LValue) {
 	idx := -1
 	if key == LNil {
 		idx = 0
+		tb.beginWalk()
 	} else {
 		switch k := key.(type) {
 		case LNumber:
@@ -885,7 +917,7 @@ func (tb *LTable) Next(key LValue) (LValue, LValue) {
 func (tb *LTable) nextField(i int) (LValue, LValue) {
 	for ; i < len(tb.fields); i++ {
 		if f := &tb.fields[i]; !f.removed() {
-			return LString(f.key), f.get()
+			return tb.fieldKey(i), f.get()
 		}
 	}
 	return tb.nextKey(0)

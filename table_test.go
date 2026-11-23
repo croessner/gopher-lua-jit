@@ -2,6 +2,7 @@ package lua
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -386,5 +387,99 @@ func TestTableBoolArray(t *testing.T) {
 	}
 	if clone.akind != arrayKindBool || clone.RawGetInt(4) != LTrue {
 		t.Fatalf("the clone changed with its source")
+	}
+}
+
+// sinkKey and sinkValue receive what the traversal tests visit, so that
+// the callbacks capture nothing.
+var sinkKey, sinkValue LValue
+
+func visitSink(k, v LValue) { sinkKey, sinkValue = k, v }
+
+// traversalTable returns a table with array elements, string keys and
+// other keys, as plugins build them for modules and requests.
+func traversalTable() *LTable {
+	tb := newLTable(0, 0)
+	for i := 1; i <= 40; i++ {
+		tb.RawSetInt(i, LString("element"))
+	}
+	for _, k := range []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu"} {
+		tb.RawSetString(k, LTrue)
+	}
+	tb.RawSet(LNumber(2.5), LTrue)
+	return tb
+}
+
+// walk visits every entry of tb with Next and returns the keys.
+func walk(tb *LTable) []string {
+	var keys []string
+	for k, v := tb.Next(LNil); k != LNil; k, v = tb.Next(k) {
+		sinkValue = v
+		keys = append(keys, k.String())
+	}
+	return keys
+}
+
+// TestRepeatedTraversalDoesNotAllocate checks that traversing a table
+// again and again, with ForEach and with Next (pairs), does not box the
+// string keys and the array indexes anew every time.
+func TestRepeatedTraversalDoesNotAllocate(t *testing.T) {
+	tb := traversalTable()
+	tb.ForEach(visitSink) // the first traversal is not worth a cache
+	tb.ForEach(visitSink) // the second one builds it
+	if n := testing.AllocsPerRun(20, func() { tb.ForEach(visitSink) }); n != 0 {
+		t.Errorf("ForEach allocates %v times per traversal", n)
+	}
+	if n := testing.AllocsPerRun(20, func() {
+		for k, v := tb.Next(LNil); k != LNil; k, v = tb.Next(k) {
+			sinkKey, sinkValue = k, v
+		}
+	}); n != 0 {
+		t.Errorf("Next allocates %v times per traversal", n)
+	}
+}
+
+// TestTraversalKeysFollowTheTable checks the cached keys against changes
+// of the table between and during traversals.
+func TestTraversalKeysFollowTheTable(t *testing.T) {
+	tb := traversalTable()
+	before := walk(tb)
+	if again := walk(tb); strings.Join(again, " ") != strings.Join(before, " ") {
+		t.Fatalf("second traversal visits %v, first %v", again, before)
+	}
+	// fields added, removed and added again after the cache was built
+	tb.RawSetString("nu", LTrue)
+	tb.RawSetString("beta", LNil)
+	tb.RawSetString("gamma", LNil)
+	tb.RawSetString("gamma", LNumber(3))
+	want := []string{"alpha", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu", "nu"}
+	var fields []string
+	tb.ForEach(func(k, v LValue) {
+		if s, ok := k.(LString); ok {
+			fields = append(fields, string(s))
+		}
+	})
+	if strings.Join(fields, " ") != strings.Join(want, " ") {
+		t.Errorf("ForEach visits the fields %v, want %v", fields, want)
+	}
+	if got := walk(tb)[40:]; strings.Join(got, " ") != strings.Join(append(want, "2.5"), " ") {
+		t.Errorf("Next visits %v behind the array, want %v", got, append(want, "2.5"))
+	}
+	// a field added while the table is traversed is visited with its own key
+	seen := map[string]int{}
+	tb.ForEach(func(k, v LValue) {
+		seen[k.String()]++
+		if k.String() == "alpha" {
+			tb.RawSetString("omega", LTrue)
+		}
+	})
+	if seen["omega"] != 1 || seen["alpha"] != 1 || len(seen) != 40+len(want)+2 {
+		t.Errorf("traversal with an added field saw %d keys, omega %d times", len(seen), seen["omega"])
+	}
+	// a copy has its own keys
+	c := tb.Clone()
+	c.RawSetString("only-in-copy", LTrue)
+	if got, orig := len(walk(c)), len(walk(tb)); got != orig+1 {
+		t.Errorf("copy has %d entries, original %d", got, orig)
 	}
 }
