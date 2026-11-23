@@ -251,6 +251,16 @@ type jitFrontend struct {
 	// that is being translated, by target position (see inlineBody).
 	edges map[int][]feEdge
 
+	// twins holds the integer twins of float values (see jit_narrow.go);
+	// loopBits is the bound of the control values of the narrowed numeric
+	// for loops, by the position of the loop body. noTwin marks the
+	// registers that get no twin at a block entry because an edge
+	// delivers them without one; indexRegs caches indexRegisters.
+	twins     map[*jit.Value]intTwin
+	loopBits  map[int]uint8
+	noTwin    map[demoteKey]bool
+	indexRegs *regSet
+
 	// statistics for the profitability check
 	nativeOps int
 	callouts  int
@@ -287,6 +297,7 @@ func compileLoopIR(L *LState, jp *jitProto, fn *LFunction, frame []LValue, base,
 		demoted:     make(map[demoteKey]bool),
 		forcedDirty: make(map[demoteKey]bool),
 		needPhi:     make(map[demoteKey]bool),
+		noTwin:      make(map[demoteKey]bool),
 	}
 	if fe.nslots > len(frame) {
 		return nil, nil, errJITUnsupported("register window too small")
@@ -324,6 +335,8 @@ func (fe *jitFrontend) translate() (err error) {
 	fe.pendingTop = -1
 	fe.inlined = fe.inlined[:0]
 	fe.refPeek = make(map[int32]LValue)
+	fe.twins = make(map[*jit.Value]intTwin)
+	fe.loopBits = make(map[int]uint8)
 	fe.meta = fe.meta[:0]
 	fe.consts = fe.consts[:0]
 	fe.keep = fe.keep[:0]
@@ -350,6 +363,7 @@ func (fe *jitFrontend) translate() (err error) {
 		}
 	}
 	fe.speculateLoopStep()
+	fe.narrowEntry()
 	fe.connect(fe.cur, fe.entryPC, fe.st)
 
 	for _, pc := range fe.order {
@@ -548,31 +562,28 @@ func (fe *jitFrontend) naturalLoop(header int) map[int]bool {
 // the numeric for loop that is being entered, which makes the direction
 // of the loop a compile time constant.
 func (fe *jitFrontend) speculateLoopStep() {
-	code := fe.proto.Code
-	for pc, inst := range code {
-		if fe.info.data[pc] || opGetOpCode(inst) != OP_FORLOOP || pc+1+opGetArgSbx(inst) != fe.entryPC {
-			continue
-		}
-		// A step of one (the usual case) is treated as a constant; any
-		// other step may differ on the next entry (for j = i, n, i), so
-		// only its sign is assumed where the loop is translated.
-		slot := opGetArgA(inst) + 2
-		s := &fe.st[slot]
-		switch s.kind {
-		case skInt:
-			if v := int64(fe.frame[slot].(LInteger)); v == 1 || v == -1 {
-				c := fe.f.ConstInt(fe.cur, v)
-				fe.guard(fe.f.NewValue(fe.cur, jit.OpEq, jit.TInt, 0, s.val, c), -1, 0)
-				s.val = c
-			}
-		case skFloat:
-			if v := float64(fe.frame[slot].(LNumber)); v == 1 || v == -1 {
-				c := fe.f.ConstFloat(fe.cur, v)
-				fe.guard(fe.f.NewValue(fe.cur, jit.OpFEq, jit.TInt, 0, s.val, c), -1, 0)
-				s.val = c
-			}
-		}
+	a, ok := fe.entryForLoop()
+	if !ok {
 		return
+	}
+	// A step of one (the usual case) is treated as a constant; any
+	// other step may differ on the next entry (for j = i, n, i), so
+	// only its sign is assumed where the loop is translated.
+	slot := a + 2
+	s := &fe.st[slot]
+	switch s.kind {
+	case skInt:
+		if v := int64(fe.frame[slot].(LInteger)); v == 1 || v == -1 {
+			c := fe.f.ConstInt(fe.cur, v)
+			fe.guard(fe.f.NewValue(fe.cur, jit.OpEq, jit.TInt, 0, s.val, c), -1, 0)
+			s.val = c
+		}
+	case skFloat:
+		if v := float64(fe.frame[slot].(LNumber)); v == 1 || v == -1 {
+			c := fe.f.ConstFloat(fe.cur, v)
+			fe.guard(fe.f.NewValue(fe.cur, jit.OpFEq, jit.TInt, 0, s.val, c), -1, 0)
+			s.val = c
+		}
 	}
 }
 
@@ -785,6 +796,9 @@ func (fe *jitFrontend) conform(from *jit.Block, tb *feBlock, st []slotState) {
 			} else if !(want.val.Op == jit.OpPhi && want.val.Block == tb.ir) && have.val != want.val {
 				fe.needPhi[demoteKey{tb.pc, slot}] = true
 				fe.restart = true
+			} else if want.kind == skFloat && !fe.twinConforms(from, tb, want.val, have.val) {
+				fe.noTwin[demoteKey{tb.pc, slot}] = true
+				fe.restart = true
 			}
 		case skNil:
 			if have.kind != skNil {
@@ -824,6 +838,9 @@ func (fe *jitFrontend) conform(from *jit.Block, tb *feBlock, st []slotState) {
 			continue
 		}
 		want.val.Args = append(want.val.Args, st[slot].val)
+		if want.kind == skFloat {
+			fe.addTwinArg(from, tb, want.val, st[slot].val)
+		}
 	}
 }
 
@@ -995,6 +1012,9 @@ func (fe *jitFrontend) startBlock(tb *feBlock) bool {
 				phi.Args = append(phi.Args, tb.incoming[i].st[slot].val)
 			}
 			st[slot] = slotState{kind: first.kind, dirty: dirty, val: phi}
+			if first.kind == skFloat {
+				fe.twinPhi(tb, slot, phi)
+			}
 		case skNil:
 			if !pending {
 				st[slot] = slotState{kind: skNil}
@@ -1324,7 +1344,11 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 		if kind == skInt {
 			fe.set(A, skInt, fe.op(jit.OpNeg, jit.TInt, v))
 		} else {
-			fe.set(A, skFloat, fe.op(jit.OpFNeg, jit.TFloat, v))
+			r := fe.op(jit.OpFNeg, jit.TFloat, v)
+			if t, ok := fe.twin(v); ok && !v.IsConst() {
+				fe.setTwin(r, fe.op(jit.OpNeg, jit.TInt, t.v), t.bits)
+			}
+			fe.set(A, skFloat, r)
 		}
 	case OP_BNOT:
 		v, kind, ok := fe.rkNum(B)
@@ -1633,7 +1657,12 @@ func (fe *jitFrontend) intrinsicCall(a, b, c int) bool {
 		case lang55:
 			fe.set(a, skInt, fe.floatToIntExact(fe.op(o, jit.TFloat, x)))
 		default:
-			fe.set(a, skFloat, fe.op(o, jit.TFloat, fe.toFloat(x, xk)))
+			fx := fe.toFloat(x, xk)
+			r := fe.op(o, jit.TFloat, fx)
+			if kind == intrFloor && xk == skFloat {
+				fe.floorTwin(r, fx)
+			}
+			fe.set(a, skFloat, r)
 		}
 	case intrAbs:
 		if xk == skInt && lang55 {
@@ -1694,7 +1723,11 @@ func (fe *jitFrontend) arith(op, a, b, c int) bool {
 			return true
 		}
 		o := map[int]jit.Op{OP_ADD: jit.OpFAdd, OP_SUB: jit.OpFSub, OP_MUL: jit.OpFMul}[op]
-		fe.set(a, skFloat, fe.op(o, jit.TFloat, fe.toFloat(x, xk), fe.toFloat(y, yk)))
+		r := fe.op(o, jit.TFloat, fe.toFloat(x, xk), fe.toFloat(y, yk))
+		if xk == skFloat && yk == skFloat {
+			fe.deriveTwin(map[int]jit.Op{OP_ADD: jit.OpAdd, OP_SUB: jit.OpSub, OP_MUL: jit.OpMul}[op], r, x, y)
+		}
+		fe.set(a, skFloat, r)
 		return true
 	case OP_DIV:
 		fe.set(a, skFloat, fe.op(jit.OpFDiv, jit.TFloat, fe.toFloat(x, xk), fe.toFloat(y, yk)))
@@ -1784,6 +1817,8 @@ func (fe *jitFrontend) floatExactInt(v *jit.Value, kind slotKind) *jit.Value {
 			return v
 		}
 		v = fe.op(jit.OpIntToFloat, jit.TFloat, v)
+	} else if t, ok := fe.twin(v); ok {
+		return t.v
 	}
 
 	fe.guard(fe.op(jit.OpFLt, jit.TInt, v, fe.f.ConstFloat(fe.cur, 9223372036854775808.0)), -1, 0)
@@ -1818,6 +1853,12 @@ func (fe *jitFrontend) floatModIntegral(a int, x *jit.Value, xk slotKind, y *jit
 	fe.cur = join
 	result := fe.f.NewPhi(join, jit.TFloat)
 	result.Args = []*jit.Value{remainder, signedZero}
+	if yk == skFloat {
+		// the remainder is smaller than the divisor
+		if ty, ok := fe.twin(y); ok {
+			fe.setTwin(result, r, ty.bits)
+		}
+	}
 	fe.set(a, skFloat, result)
 	return true
 }
@@ -1992,15 +2033,23 @@ func (fe *jitFrontend) forPrep(a, pcBody, pcExit int) {
 	} else {
 		finit, flimit := fe.toFloat(init, ik), fe.toFloat(limit, lk)
 		fstep := fe.toFloat(step, sk)
-		if !fe.L.lang55 {
-			// Lua 5.1 computes the first index as (init - step) + step
-			finit = fe.op(jit.OpFAdd, jit.TFloat, fe.op(jit.OpFSub, jit.TFloat, finit, fstep), fstep)
+		if ninit, nstep, bound, ok := fe.narrowForPrep(a, finit, flimit, fstep); ok {
+			// integers of a limited size: the first index of Lua 5.1,
+			// (init - step) + step, is exact, and no operand is a NaN
+			finit, fstep = ninit, nstep
+			fe.loopBits[pcBody] = bound
+		} else {
+			if !fe.L.lang55 {
+				// Lua 5.1 computes the first index as (init - step) + step
+				finit = fe.op(jit.OpFAdd, jit.TFloat, fe.op(jit.OpFSub, jit.TFloat, finit, fstep), fstep)
+			}
+			// the loop runs unless the limit is already passed;
+			// comparisons with NaN are false, which the interpreter
+			// treats differently in the two profiles, so NaN operands
+			// deoptimize
+			fe.guard(fe.op(jit.OpFEq, jit.TInt, flimit, flimit), -1, 0)
+			fe.guard(fe.op(jit.OpFEq, jit.TInt, finit, finit), -1, 0)
 		}
-		// the loop runs unless the limit is already passed; comparisons
-		// with NaN are false, which the interpreter treats differently in
-		// the two profiles, so NaN operands deoptimize
-		fe.guard(fe.op(jit.OpFEq, jit.TInt, flimit, flimit), -1, 0)
-		fe.guard(fe.op(jit.OpFEq, jit.TInt, finit, finit), -1, 0)
 		if positive {
 			skip = fe.op(jit.OpFLt, jit.TInt, flimit, finit)
 		} else {
@@ -2077,6 +2126,7 @@ func (fe *jitFrontend) forLoop(a, pcBody, pcExit int) {
 		next = fe.op(jit.OpAdd, jit.TInt, idx, step)
 	} else {
 		next = fe.op(jit.OpFAdd, jit.TFloat, idx, step)
+		fe.narrowNext(pcBody, next, idx, step)
 		if positive {
 			cont = fe.op(jit.OpFLe, jit.TInt, next, limit)
 		} else {
@@ -2130,11 +2180,15 @@ func (fe *jitFrontend) arrayIndex(rk int) (*jit.Value, bool) {
 			return nil, false
 		}
 		// Lua 5.1 profile: all numbers are floats; the index must be an
-		// exact integer
-		fe.guard(fe.op(jit.OpFLt, jit.TInt, key, fe.f.ConstFloat(fe.cur, 9007199254740992)), -1, 0)
-		i := fe.op(jit.OpFloatToInt, jit.TInt, key)
-		fe.guard(fe.op(jit.OpFEq, jit.TInt, fe.op(jit.OpIntToFloat, jit.TFloat, i), key), -1, 0)
-		key = i
+		// exact integer, which is known for a key with an integer twin
+		if t, ok := fe.twin(key); ok {
+			key = t.v
+		} else {
+			fe.guard(fe.op(jit.OpFLt, jit.TInt, key, fe.f.ConstFloat(fe.cur, 9007199254740992)), -1, 0)
+			i := fe.op(jit.OpFloatToInt, jit.TInt, key)
+			fe.guard(fe.op(jit.OpFEq, jit.TInt, fe.op(jit.OpIntToFloat, jit.TFloat, i), key), -1, 0)
+			key = i
+		}
 	}
 	return fe.op(jit.OpSub, jit.TInt, key, fe.constInt(1)), true
 }
@@ -2513,7 +2567,9 @@ func (fe *jitFrontend) length(a, b int) bool {
 		if fe.L.lang55 {
 			fe.set(a, skInt, n)
 		} else {
-			fe.set(a, skFloat, fe.op(jit.OpIntToFloat, jit.TFloat, n))
+			f := fe.op(jit.OpIntToFloat, jit.TFloat, n)
+			fe.setTwin(f, n, twinWideBits)
+			fe.set(a, skFloat, f)
 		}
 	}
 	if valueKind(fe.peek(home)) == vkString {

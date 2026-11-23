@@ -571,7 +571,7 @@ func (ls *LState) jitExitNote(u *jitUnit, id int, m *exitMeta, base int, iterati
 			if tb, ok := v.(*LTable); ok {
 				u.jp.feedback[key] = tb.akind
 			}
-		case fbField, fbUpval, fbInline:
+		case fbField, fbUpval, fbInline, fbNarrow:
 			if u.jp.feedback[key] < jitFieldMisses {
 				u.jp.feedback[key]++
 			}

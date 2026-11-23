@@ -140,7 +140,7 @@ native code. Calls of Lua functions that are not inlined are callouts too
 (the callee runs in a nested interpreter loop and may itself enter native
 code).
 
-Three kinds of speculation go beyond registers (`jit_frontend.go`,
+Several kinds of speculation go beyond registers (`jit_frontend.go`,
 `jit_inline.go`):
 
 - **Number fields.** A string-keyed table entry stores numbers unboxed
@@ -161,6 +161,24 @@ Three kinds of speculation go beyond registers (`jit_frontend.go`,
   loop that replaces a boxed variable (`node = node.next`) the variable
   is a reference whose address is a phi over the places the value can
   be in, including the variable's own home slot.
+- **Integer twins (Lua 5.1 profile, `jit_narrow.go`).** All numbers of
+  the profile are floats, but a table key has to be an integer: without
+  further knowledge every `t[i]` converts the key and checks that nothing
+  was lost. The front end therefore gives float values that are known to
+  be integers of a limited magnitude a second SSA value, their *twin*,
+  computed with integer arithmetic: the control values of a numeric `for`
+  loop (checked once when the loop is entered: integral start and step,
+  all three below 2^31, or 2^52 if they are larger), phis of values with
+  twins, sums, differences and products whose result is certainly below
+  2^53 (so the float operation is exact), `math.floor` of a quotient by a
+  constant, remainders and lengths. A twin is recorded for the SSA value,
+  not for a register, and is always defined together with its float or
+  before it, so it is valid wherever the float is. Table accesses and the
+  integer path of `%` use the twin if there is one; twins nobody uses are
+  dead code. The index of a loop keeps its bound because the loop only
+  continues while the index has not passed the limit. If the values of a
+  loop turn out not to be small integers, the failed check turns
+  narrowing off for that loop.
 - **Upvalues.** A closed upvalue is read from its cell; numbers are
   unboxed, functions and tables become constants guarded by identity. An
   open upvalue of an inlined callee that refers to a register of the

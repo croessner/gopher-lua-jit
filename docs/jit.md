@@ -73,6 +73,15 @@ Compiled natively inside hot loops (both profiles):
   of field accesses, arrays of objects and linked structures need no
   interpreter. `ipairs` over such arrays advances natively as well;
 - the length of strings and of arrays (`#s`, `#t`);
+- **integer indexes in the Lua 5.1 profile**, where every number is a
+  float: the index of a numeric `for` loop is also kept as a machine
+  integer, and so are sums, differences and products of such values and
+  small constants, `math.floor(i / c)`, `i % n` and lengths. Using them
+  as table keys or as operands of `%` (`t[i + 1]`, `t[2 * i]`,
+  `t[n - i + 1]`, `t[math.floor((lo + hi) / 2)]`, `t[i % n + 1]`) needs
+  no conversion and no check per use. This applies to loops whose start,
+  limit and step are integers below 2^31 in magnitude (2^52 with less
+  room for index arithmetic); other loops use the general float code;
 - reads of **upvalues** that hold numbers, functions or tables;
 - **calls of small Lua functions**: a callee made of simple instructions
   (arithmetic, comparisons, field and array access, upvalue reads, further

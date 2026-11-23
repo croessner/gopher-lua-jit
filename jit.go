@@ -226,6 +226,7 @@ const (
 	fbField               // number of times a field access met another table layout
 	fbUpval               // number of times an upvalue held another kind of value
 	fbInline              // set when inlining the callee of a call did not pay off
+	fbNarrow              // set when a register did not hold the small integer it was narrowed to
 )
 
 // jitUnit is a piece of compiled code.
