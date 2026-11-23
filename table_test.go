@@ -483,3 +483,28 @@ func TestTraversalKeysFollowTheTable(t *testing.T) {
 		t.Errorf("copy has %d entries, original %d", got, orig)
 	}
 }
+
+// TestForEachOrderMatchesNext checks that ForEach visits every kind of
+// key in the order of Next: the array part, the string keys and then the
+// other keys, each in the order in which they were added.
+func TestForEachOrderMatchesNext(t *testing.T) {
+	tb := newLTable(0, 0)
+	for _, k := range []LValue{LNumber(-3), LNumber(2.5), LTrue, LNumber(1e10), LNumber(0), LFalse, LNumber(-0.5)} {
+		tb.RawSet(k, LString("x"))
+	}
+	tb.RawSetString("name", LTrue)
+	tb.RawSetInt(1, LTrue)
+	tb.RawSet(LNumber(2.5), LNil) // removed keys are skipped
+	tb.RawSet(LNumber(7.25), LTrue)
+	want := walk(tb)
+	for round := 0; round < 20; round++ {
+		var got []string
+		tb.ForEach(func(k, v LValue) { got = append(got, k.String()) })
+		if strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Fatalf("ForEach visits %v, Next %v", got, want)
+		}
+	}
+	if len(want) != 9 {
+		t.Errorf("%d entries visited, want 9: %v", len(want), want)
+	}
+}

@@ -862,11 +862,11 @@ func (tb *LTable) ForEach(cb func(LValue, LValue)) {
 			cb(tb.fieldKey(i), f.get())
 		}
 	}
-	if tb.dict != nil {
-		for k, v := range tb.dict {
-			if v != LNil {
-				cb(k, v)
-			}
+	// (the other keys in the order in which they were added, like Next)
+	for i := 0; i < len(tb.keys); i++ {
+		key := tb.keys[i]
+		if v, ok := tb.dict[key]; ok && v != LNil {
+			cb(key, v)
 		}
 	}
 }
