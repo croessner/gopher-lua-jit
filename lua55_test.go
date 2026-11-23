@@ -12,13 +12,15 @@ import (
 )
 
 // lua55PosixScripts assert POSIX behaviour (shell commands, signals, the
-// error texts of the operating system, "/" in module paths). They are
-// skipped on Windows.
+// error texts of the operating system, "/" in module paths, removing a
+// file that an abandoned iterator still holds open). They are skipped on
+// Windows.
 var lua55PosixScripts = map[string]bool{
-	"base/load.lua":    true,
-	"base/package.lua": true,
-	"mtio/io.lua":      true,
-	"mtio/os.lua":      true,
+	"base/load.lua":     true,
+	"base/package.lua":  true,
+	"mtio/io.lua":       true,
+	"mtio/io_lines.lua": true,
+	"mtio/os.lua":       true,
 }
 
 // lua55ScriptFiles returns the Lua scripts of a conformance test group
