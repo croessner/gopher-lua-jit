@@ -82,6 +82,10 @@ Compiled natively inside hot loops (both profiles):
   no conversion and no check per use. This applies to loops whose start,
   limit and step are integers below 2^31 in magnitude (2^52 with less
   room for index arithmetic); other loops use the general float code;
+- reads of **global variables**, and writes of a number to a global that
+  holds a number (`count = count + 1`): an existing global is a field of
+  the environment table and is accessed like one. A global that does not
+  exist is looked up by the interpreter, which may consult a metatable;
 - reads of **upvalues** that hold numbers, functions or tables. A table
   found in an upvalue or in a global variable (a module-level `local t`
   used inside functions, a global `config`) is indexed natively like a

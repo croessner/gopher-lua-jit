@@ -185,7 +185,9 @@ Several kinds of speculation go beyond registers (`jit_frontend.go`,
   open one from the register of the waiting function it belongs to;
   numbers are unboxed, functions and tables become constants guarded by
   identity. A global that holds a function or a table is a constant as
-  long as the version counter of the environment table is unchanged. An
+  long as the version counter of the environment table is unchanged; any
+  other global that exists is read, and a number global written, like a
+  field of the environment table (see number fields). An
   open upvalue of an inlined callee that refers to a register of the
   running activation is that register. A constant table is a location
   like a home slot or a reference: its type and data words are known at

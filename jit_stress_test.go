@@ -368,6 +368,8 @@ func (g *progGen) expr(depth int) string {
 		return "tonumber(" + l + ")"
 	case 19:
 		return "t[mx(1, mn(fl(" + l + "), #t))]"
+	case 20:
+		return "(g1 + (tonumber(g2) or 1))"
 	case 0:
 		return "math.floor(" + l + ")"
 	case 1:
@@ -416,7 +418,12 @@ func (g *progGen) stmt() {
 	switch k := g.rng.Intn(10); {
 	case k < 1:
 		// fields, boolean array elements, helper results, upvalues
-		switch g.rng.Intn(15) {
+		switch g.rng.Intn(18) {
+		case 14, 15:
+			// globals: numbers most of the time
+			fmt.Fprintf(&g.sb, "%s%s = %s\n", ind, []string{"g1", "g2"}[g.rng.Intn(2)], g.expr(2))
+		case 16:
+			fmt.Fprintf(&g.sb, "%sif i %% 29 == 0 then g2 = %s end\n", ind, []string{"'9'", "nil", "g1", "false"}[g.rng.Intn(4)])
 		case 0, 1, 2:
 			fmt.Fprintf(&g.sb, "%s%s = %s\n", ind, []string{"p.u", "p.v", "p.w", "q.u"}[g.rng.Intn(4)], g.expr(2))
 		case 3, 4:
@@ -497,6 +504,7 @@ func (g *progGen) generate() string {
 	g.sb.WriteString("local p, q = {u = 1, v = 2.5, w = -3}, {v = 4, extra = 's', u = 9}\n")
 	g.sb.WriteString("local flags = {}\nfor i = 1, 16 do flags[i] = i % 3 == 0 end\n")
 	g.sb.WriteString("local k1, k2 = 3, 0.5\n")
+	g.sb.WriteString("g1, g2 = 2, 0.25\n")
 	g.sb.WriteString("local fl, mx, mn = math.floor, math.max, math.min\n")
 	g.sb.WriteString("local function h1(m, n) return m * k1 + n end\n")
 	g.sb.WriteString("local function h2(m) return h1(m, k2) - m end\n")
@@ -526,7 +534,8 @@ func (g *progGen) generate() string {
 	}
 	g.sb.WriteString("end\nend)\n")
 	g.sb.WriteString("local parts = {tostring(ok), ok and '' or (string.gsub(tostring(err), '^.-:%d+: ', ''))}\n")
-	g.sb.WriteString("for _, v in ipairs({a, b, c, d, x, y}) do parts[#parts + 1] = string.format('%.14g', v) end\n")
+	g.sb.WriteString("for _, v in ipairs({a, b, c, d, x, y, g1}) do parts[#parts + 1] = string.format('%.14g', v) end\n")
+	g.sb.WriteString("parts[#parts + 1] = tostring(g2)\n")
 	g.sb.WriteString("for i = 1, #t do parts[#parts + 1] = string.format('%.14g', t[i]) end\n")
 	g.sb.WriteString("for _, v in ipairs({p.u or 'nil', p.v or 'nil', p.w or 'nil', q.u or 'nil', q.v or 'nil', k1, k2, obj.u, obj.v}) do\n")
 	g.sb.WriteString("  parts[#parts + 1] = type(v) == 'number' and string.format('%.14g', v) or tostring(v)\nend\n")

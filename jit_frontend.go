@@ -255,6 +255,10 @@ type jitFrontend struct {
 	// for loops, by the position of the loop body. noTwin marks the
 	// registers that get no twin at a block entry because an edge
 	// delivers them without one; indexRegs caches indexRegisters.
+	// envConst is the index of the environment table in the constant
+	// pool once the code accesses a global through it (-1 before).
+	envConst int32
+
 	twins     map[*jit.Value]intTwin
 	loopBits  map[int]uint8
 	noTwin    map[demoteKey]bool
@@ -340,6 +344,7 @@ func (fe *jitFrontend) translate() (err error) {
 	fe.consts = fe.consts[:0]
 	fe.keep = fe.keep[:0]
 	fe.usesEnv = false
+	fe.envConst = -1
 	fe.nativeOps, fe.callouts = 0, 0
 	fe.discoverRegion()
 
@@ -1121,13 +1126,19 @@ func (fe *jitFrontend) load(o jit.Op, typ jit.Type, base *jit.Value, disp int64)
 // register refers to (skRef), identified by refLoc of that register, or
 // the constant a register holds (skConst: a table or function found in an
 // upvalue or a global), identified by constLoc of that register. The
-// words of a constant are known when the code is compiled.
+// words of a constant are known when the code is compiled. A constant
+// that no register holds (the environment table) is identified by
+// poolLoc of its index in the constant pool.
 
-// refBias and constBias distinguish the kinds of locations.
+// refBias, constBias and poolBias distinguish the kinds of locations.
 const (
 	refBias   = 1 << 12
 	constBias = 1 << 13
+	poolBias  = 1 << 14
 )
+
+// poolLoc returns the location of a constant of the unit pool.
+func poolLoc(idx int32) int { return int(idx) + poolBias }
 
 // refLoc returns the location of the value the register slot refers to.
 func refLoc(slot int) int { return slot + refBias }
@@ -1136,11 +1147,21 @@ func refLoc(slot int) int { return slot + refBias }
 func constLoc(slot int) int { return slot + constBias }
 
 // locSlot returns the register a location belongs to: the home slot or
-// the register that holds the reference or the constant.
-func locSlot(loc int) int { return loc &^ (refBias | constBias) }
+// the register that holds the reference or the constant. A constant of
+// the pool belongs to no register; register zero stands in where one is
+// needed to name the site of a speculation.
+func locSlot(loc int) int {
+	if loc >= poolBias {
+		return 0
+	}
+	return loc &^ (refBias | constBias)
+}
 
 // constAt returns the constant at a constant location.
 func (fe *jitFrontend) constAt(loc int) LValue {
+	if loc >= poolBias {
+		return fe.consts[loc-poolBias]
+	}
 	return fe.consts[fe.st[locSlot(loc)].src]
 }
 
@@ -1448,7 +1469,11 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 			return fe.generic(pc, op)
 		}
 	case OP_GETGLOBAL, OP_GETENV:
-		if !fe.constGlobal(A, opGetArgBx(inst)) {
+		if !fe.getGlobal(A, opGetArgBx(inst)) {
+			return fe.generic(pc, op)
+		}
+	case OP_SETGLOBAL, OP_SETENV:
+		if !fe.setGlobal(A, opGetArgBx(inst)) {
 			return fe.generic(pc, op)
 		}
 	case OP_GETUPVAL:
@@ -1595,6 +1620,15 @@ func (fe *jitFrontend) constGlobal(a, kidx int) bool {
 	if !constValue(v) {
 		return false
 	}
+	fe.dependOnEnv()
+	fe.guardVersion(fe.env)
+	fe.st[a] = slotState{kind: skConst, src: fe.constIndex(v)}
+	return true
+}
+
+// dependOnEnv makes the code depend on the identity of the environment
+// table of the function that is being translated.
+func (fe *jitFrontend) dependOnEnv() {
 	if fe.inl != 0 {
 		// the environment of an inlined callee is checked where it is
 		// used: the entry check only covers the compiled function
@@ -1603,9 +1637,57 @@ func (fe *jitFrontend) constGlobal(a, kidx int) bool {
 	} else {
 		fe.usesEnv = true
 	}
-	fe.guardVersion(fe.env)
-	fe.st[a] = slotState{kind: skConst, src: fe.constIndex(v)}
-	return true
+}
+
+// envLoc returns the location of the environment table, on whose
+// identity the code depends from here on.
+func (fe *jitFrontend) envLoc() int {
+	fe.dependOnEnv()
+	if fe.envConst < 0 || fe.inl != 0 {
+		// (an inlined callee can have an environment of its own)
+		idx := fe.constIndex(fe.env)
+		if fe.inl != 0 {
+			return poolLoc(idx)
+		}
+		fe.envConst = idx
+	}
+	return poolLoc(fe.envConst)
+}
+
+// envField reports whether the environment table has an entry for a
+// global right now and whether that entry holds a number.
+func (fe *jitFrontend) envField(kidx int) (key string, present, number bool) {
+	key = fe.proto.stringConstants[kidx]
+	if fe.env == nil {
+		return key, false, false
+	}
+	i := fe.env.findField(key)
+	if i < 0 || fe.env.fields[i].removed() {
+		return key, false, false
+	}
+	return key, true, fe.env.fields[i].kind != fieldBoxed
+}
+
+// getGlobal translates R(a) := Gbl[Kst(kidx)]: a function or a table is
+// a constant, any other value that exists is read like a field of the
+// environment table. A global that does not exist is left to the
+// interpreter, which may have to consult a metatable.
+func (fe *jitFrontend) getGlobal(a, kidx int) bool {
+	if fe.constGlobal(a, kidx) {
+		return true
+	}
+	key, present, _ := fe.envField(kidx)
+	return present && fe.getFieldAt(a, fe.envLoc(), key)
+}
+
+// setGlobal translates Gbl[Kst(kidx)] := R(a) for a number that replaces
+// a number.
+func (fe *jitFrontend) setGlobal(a, kidx int) bool {
+	key, _, number := fe.envField(kidx)
+	if _, ok := fe.numKind(a); !ok || !number {
+		return false
+	}
+	return fe.setFieldAt(fe.envLoc(), key, a)
 }
 
 // constField translates R(a) := R(b)[K(c)] when R(b) is a constant table
@@ -2105,8 +2187,14 @@ func (fe *jitFrontend) tableOf(slot int) (tp *jit.Value, home int, ok bool) {
 	if !ok || valueKind(fe.peek(home)) != vkTable {
 		return nil, 0, false
 	}
+	return fe.tableAt(home), home, true
+}
+
+// tableAt loads the *LTable at a location that is predicted to hold a
+// table, guarded by a type check.
+func (fe *jitFrontend) tableAt(home int) *jit.Value {
 	fe.guard(fe.op(jit.OpEq, jit.TInt, fe.slotItab(home), fe.constInt(int64(itabTable))), home, fbValue)
-	return fe.slotData(home), home, true
+	return fe.slotData(home)
 }
 
 // arrayKindOf predicts the array representation of the table in a home
@@ -2410,6 +2498,11 @@ func (fe *jitFrontend) fieldRef(slot int, key string, boxedOK bool) (data *jit.V
 	if !ok {
 		return nil, 0, 0, false
 	}
+	return fe.fieldRefAt(home, key, boxedOK)
+}
+
+// fieldRefAt is fieldRef for the table at a location.
+func (fe *jitFrontend) fieldRefAt(home int, key string, boxedOK bool) (data *jit.Value, disp int64, kind uint8, ok bool) {
 	tb, isTable := fe.peek(home).(*LTable)
 	if !isTable || fe.jp.feedback[feedbackKey{fe.fbpc(), int16(locSlot(home)), fbField}] >= jitFieldMisses {
 		return nil, 0, 0, false
@@ -2422,7 +2515,7 @@ func (fe *jitFrontend) fieldRef(slot int, key string, boxedOK bool) (data *jit.V
 		return nil, 0, 0, false
 	}
 	f := &tb.fields[idx]
-	tp, _, _ := fe.tableOf(slot)
+	tp := fe.tableAt(home)
 	data = fe.load(jit.OpLoad64, jit.TInt, tp, int64(offTableFields)+sliceOffData)
 	n := fe.load(jit.OpLoad64, jit.TInt, tp, int64(offTableFields)+sliceOffLen)
 	fe.guard(fe.op(jit.OpULt, jit.TInt, fe.constInt(int64(idx)), n), home, fbField)
@@ -2445,11 +2538,16 @@ func (fe *jitFrontend) getField(a, b, c int) bool {
 	if c&opBitRk == 0 {
 		return false
 	}
-	data, disp, kind, ok := fe.fieldRef(b, fe.proto.stringConstants[c&^opBitRk], true)
+	home, ok := fe.homeSlot(b)
+	return ok && fe.getFieldAt(a, home, fe.proto.stringConstants[c&^opBitRk])
+}
+
+// getFieldAt translates R(a) := T[key] for the table T at a location.
+func (fe *jitFrontend) getFieldAt(a, home int, key string) bool {
+	data, disp, kind, ok := fe.fieldRefAt(home, key, true)
 	if !ok {
 		return false
 	}
-	home, _ := fe.homeSlot(b)
 	cur := fe.loadMem(jit.MemField, jit.OpLoad8, jit.TInt, data, disp+int64(offFieldKind))
 	fe.guard(fe.op(jit.OpEq, jit.TInt, cur, fe.constInt(int64(kind))), home, fbField)
 	switch kind {
@@ -2487,15 +2585,24 @@ func (fe *jitFrontend) setField(a, b, c int) bool {
 	} else {
 		return false
 	}
+	home, ok := fe.homeSlot(a)
+	return ok && fe.setFieldAt(home, key, c)
+}
+
+// setFieldAt translates T[key] := RK(c) for the table T at a location
+// and a number that replaces a number.
+func (fe *jitFrontend) setFieldAt(home int, key string, c int) bool {
+	if _, isTable := fe.peek(home).(*LTable); !isTable {
+		return false
+	}
 	val, vk, ok := fe.rkNum(c)
 	if !ok {
 		return false
 	}
-	data, disp, _, ok := fe.fieldRef(a, key, false)
+	data, disp, _, ok := fe.fieldRefAt(home, key, false)
 	if !ok {
 		return false
 	}
-	home, _ := fe.homeSlot(a)
 	// the entry must hold a number: replacing other values can involve
 	// the version counter of the table
 	cur := fe.loadMem(jit.MemField, jit.OpLoad8, jit.TInt, data, disp+int64(offFieldKind))
