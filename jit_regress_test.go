@@ -356,3 +356,134 @@ func TestJITStableLoopsStayNative(t *testing.T) {
 		}
 	}
 }
+
+// jitFieldPrograms exercise number fields that native code reads and
+// writes in place (differential: interpreter vs JIT).
+var jitFieldPrograms = map[string]string{
+	"field arithmetic": `local p = {x = 0, y = 1, z = 2} for i = 1, 300 do p.x = p.x + p.y p.z = p.x - p.y * 0.5 end return p.x, p.y, p.z`,
+	"field read back by the interpreter": `
+		local p = {n = 0, s = "str"}
+		local seen = {}
+		for i = 1, 200 do
+			p.n = p.n + i
+			if i % 50 == 0 then seen[#seen + 1] = tostring(p.n) .. p.s end
+		end
+		local keys = {}
+		for k, v in pairs(p) do keys[#keys + 1] = k .. "=" .. tostring(v) end
+		table.sort(keys)
+		return table.concat(seen, ","), table.concat(keys, ","), rawget(p, "n"), next(p) ~= nil`,
+	"field changes kind": `
+		local p = {v = 1}
+		local log = {}
+		for i = 1, 200 do
+			if i == 60 then p.v = "text" end
+			if i == 61 then log[#log + 1] = p.v p.v = 10 end
+			if i == 120 then p.v = nil end
+			if i == 121 then log[#log + 1] = tostring(p.v) p.v = 0.5 end
+			if type(p.v) == "number" then p.v = p.v + 1 end
+		end
+		return p.v, table.concat(log, ",")`,
+	"integer and float fields": `local p = {a = 1, b = 0.5} for i = 1, 200 do p.a = p.a + 2 p.b = p.b * 1.01 if i == 100 then p.a = p.a + 0.25 end end return p.a, p.b`,
+	"tables of different layouts": `
+		local a = {x = 1, y = 2}
+		local b = {y = 5, extra = true, x = 7}
+		local c = {x = 100}
+		local s = 0
+		for i = 1, 300 do
+			local t = a
+			if i % 3 == 0 then t = b elseif i % 7 == 0 then t = c end
+			t.x = t.x + 1
+			s = s + t.x
+		end
+		return s, a.x, b.x, c.x`,
+	"field appears and disappears": `
+		local p = {}
+		local s = 0
+		for i = 1, 300 do
+			if i % 40 == 1 then p.count = nil end
+			p.count = (p.count or 0) + 1
+			s = s + p.count
+		end
+		return s, p.count`,
+	"metatable with __index and __newindex": `
+		local hits = 0
+		local p = setmetatable({v = 1}, {__index = function() hits = hits + 1 return 0 end, __newindex = function() hits = hits + 100 end})
+		local s = 0
+		for i = 1, 200 do p.v = p.v + 1 s = s + p.v + p.missing end
+		return s, hits, p.v`,
+	"many fields": (func() string {
+		src := "local p = {}\n"
+		for i := 0; i < 40; i++ {
+			src += fmt.Sprintf("p.f%d = %d\n", i, i)
+		}
+		src += "for i = 1, 200 do p.f39 = p.f39 + p.f0 + p.f17 p.f3 = p.f3 + 1 end\nreturn p.f39, p.f3, p.f17"
+		return src
+	})(),
+	"negative zero and nan fields": `local p = {z = 0.0, n = 0.0} for i = 1, 100 do p.z = p.z * -1.0 p.n = (p.n + 1) * (0/0) end return 1 / p.z, p.n ~= p.n`,
+}
+
+func TestJITFieldPrograms(t *testing.T) {
+	skipWithoutJIT(t)
+	for name, src := range jitFieldPrograms {
+		name, src := name, src
+		t.Run(name, func(t *testing.T) {
+			checkJITMatchesInterpreter(t, name, src)
+		})
+	}
+}
+
+// TestJITFieldsOfGoBuiltTables checks field access on tables whose keys
+// were created by Go code and the view Go code has of fields written by
+// native code.
+func TestJITFieldsOfGoBuiltTables(t *testing.T) {
+	skipWithoutJIT(t)
+	const src = `local p = ... for i = 1, 500 do p.total = p.total + p.step end return p.total`
+	for _, version := range []LanguageVersion{Lua51, Lua55} {
+		run := func(opts Options) (string, JITStats) {
+			L := NewState(opts)
+			defer L.Close()
+			fn, err := L.LoadString(src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var last *LTable
+			for round := 0; round < 20; round++ {
+				tb := L.NewTable()
+				tb.RawSetString("total", LNumber(round))
+				tb.RawSetString("step", LNumber(2))
+				tb.RawSetString("name", LString("go"))
+				if err := L.CallByParam(P{Fn: fn, NRet: 1, Protect: true}, tb); err != nil {
+					t.Fatal(err)
+				}
+				L.Pop(1)
+				last = tb
+			}
+			count := 0
+			last.ForEach(func(_, _ LValue) { count++ })
+			clone := last.Clone()
+			return fmt.Sprintf("%v %v %v %d %v", last.RawGetString("total"), L.GetField(last, "total"),
+				clone.RawGetString("total"), count, last.RawGetString("name")), L.JITStats()
+		}
+		want, _ := run(Options{LanguageVersion: version})
+		got, st := run(jitTestOptions(version, 5))
+		if got != want {
+			t.Errorf("%v: got %q, want %q", version, got, want)
+		}
+		if st.Blacklisted != 0 || st.Compiled == 0 || st.Compiled > 3 {
+			t.Errorf("%v: the field loop did not stay native: %s", version, st)
+		}
+	}
+}
+
+// TestJITFieldLoopIsNative checks that a loop over number fields runs
+// without leaving native code on every iteration.
+func TestJITFieldLoopIsNative(t *testing.T) {
+	skipWithoutJIT(t)
+	for _, version := range []LanguageVersion{Lua51, Lua55} {
+		_, st := runChunk(jitTestOptions(version, 5),
+			`local p = {x = 0, y = 1, z = 2} for i = 1, 20000 do p.x = p.x + p.y p.z = p.x - p.y end return p.z`)
+		if st.Compiled == 0 || st.Callouts > 100 || st.Blacklisted != 0 {
+			t.Errorf("%v: field access is not native: %s", version, st)
+		}
+	}
+}

@@ -108,6 +108,13 @@ const (
 	jitMaxFlushes = 8
 	// jitMaxRegion bounds the number of instructions of a compiled region.
 	jitMaxRegion = 3000
+	// jitMaxFieldIndex bounds the position of a table field that native
+	// code accesses directly (the displacement must stay small).
+	jitMaxFieldIndex = 256
+	// jitFieldMisses is the number of failed field guards after which an
+	// access is left to the interpreter: the site sees tables of several
+	// layouts.
+	jitFieldMisses = 3
 	// jitMaxDepth bounds the nesting of native activations of a thread.
 	jitMaxDepth = 64
 )
@@ -202,6 +209,7 @@ type feedbackKey struct {
 const (
 	fbValue uint8 = iota // kind of the value in a register
 	fbArray              // array representation of the table in a register
+	fbField              // number of times a field access met another table layout
 )
 
 // jitUnit is a piece of compiled code.
@@ -426,6 +434,15 @@ var (
 	offTableIarr      = unsafe.Offsetof(LTable{}.iarr)
 	offTableFarr      = unsafe.Offsetof(LTable{}.farr)
 	offTableMetatable = unsafe.Offsetof(LTable{}.Metatable)
+	offTableFields    = unsafe.Offsetof(LTable{}.fields)
+
+	// layout of tableField; kind and stale are adjacent bytes that native
+	// code writes together as one little-endian word
+	fieldSize     = unsafe.Sizeof(tableField{})
+	offFieldKey   = unsafe.Offsetof(tableField{}.key)
+	offFieldNum   = unsafe.Offsetof(tableField{}.num)
+	offFieldKind  = unsafe.Offsetof(tableField{}.kind)
+	offFieldStale = unsafe.Offsetof(tableField{}.stale)
 
 	// jitLayoutOK is false if the Go runtime does not lay out interface
 	// values and slices the way the native code expects.
@@ -473,7 +490,22 @@ func checkJITLayout() bool {
 	if itabInteger == itabNumber || itabNil == 0 || itabTable == itabNil || itabBool == itabNil {
 		return false
 	}
+	// strings are (address, length) pairs; the word that holds a field's
+	// kind and stale flag holds nothing else
+	str := "layout"
+	if sh := (*[2]uintptr)(unsafe.Pointer(&str)); sh[0] != uintptr(unsafe.Pointer(unsafe.StringData(str))) || sh[1] != 6 {
+		return false
+	}
+	if offFieldStale != offFieldKind+1 || offFieldKind%8 != 0 || fieldSize != offFieldKind+8 || !littleEndian() {
+		return false
+	}
 	return true
 }
 
 /* }}} */
+
+// littleEndian reports the byte order of the machine.
+func littleEndian() bool {
+	x := uint16(1)
+	return *(*byte)(unsafe.Pointer(&x)) == 1
+}

@@ -1074,7 +1074,11 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 			return fe.generic(pc, op)
 		}
 	case OP_GETTABLEKS:
-		if !fe.constField(A, B, C) {
+		if !fe.constField(A, B, C) && !fe.getField(A, B, C) {
+			return fe.generic(pc, op)
+		}
+	case OP_SETTABLEKS:
+		if !fe.setField(A, B, C) {
 			return fe.generic(pc, op)
 		}
 	case OP_CALL:
@@ -1861,6 +1865,109 @@ func (fe *jitFrontend) setTable(a, b, c int) bool {
 	jumpIR(fe.cur, join)
 
 	fe.cur = join
+	return true
+}
+
+// fieldRef locates the number field key of the table in register slot
+// and emits the guards under which native code may access it in place:
+// the register holds a table whose string-keyed entry at the position
+// found now is the entry for key. Entries never move, and a raw hit needs
+// no metamethod, so nothing else has to be checked. It returns the
+// address of the entries, the displacement of the entry and its kind.
+//
+// The key is recognized by the address of its bytes. Constants of all
+// functions share one copy (see intern.go); a table filled with another
+// copy of the key, for example by Go code, is accepted through the copy
+// found now.
+func (fe *jitFrontend) fieldRef(slot int, key string) (data *jit.Value, disp int64, kind uint8, ok bool) {
+	home, ok := fe.homeSlot(slot)
+	if !ok {
+		return nil, 0, 0, false
+	}
+	tb, isTable := fe.frame[home].(*LTable)
+	if !isTable || fe.jp.feedback[feedbackKey{int32(fe.pc), int16(home), fbField}] >= jitFieldMisses {
+		return nil, 0, 0, false
+	}
+	idx := tb.findField(key)
+	if idx < 0 || idx >= jitMaxFieldIndex || tb.fields[idx].kind == fieldBoxed {
+		return nil, 0, 0, false
+	}
+	f := &tb.fields[idx]
+	tp, _, _ := fe.tableOf(slot)
+	data = fe.load(jit.OpLoad64, jit.TInt, tp, int64(offTableFields)+sliceOffData)
+	n := fe.load(jit.OpLoad64, jit.TInt, tp, int64(offTableFields)+sliceOffLen)
+	fe.guard(fe.op(jit.OpULt, jit.TInt, fe.constInt(int64(idx)), n), home, fbField)
+	disp = int64(idx) * int64(fieldSize)
+	keyLen := fe.load(jit.OpLoad64, jit.TInt, data, disp+int64(offFieldKey)+8)
+	keyAddr := fe.load(jit.OpLoad64, jit.TInt, data, disp+int64(offFieldKey))
+	match := fe.op(jit.OpEq, jit.TInt, keyAddr, fe.constInt(int64(uintptr(unsafe.Pointer(unsafe.StringData(key))))))
+	if unsafe.StringData(f.key) != unsafe.StringData(key) {
+		fe.constIndex(LString(f.key)) // keeps the other copy alive
+		other := fe.constInt(int64(uintptr(unsafe.Pointer(unsafe.StringData(f.key)))))
+		match = fe.op(jit.OpOr, jit.TInt, match, fe.op(jit.OpEq, jit.TInt, keyAddr, other))
+	}
+	sameLen := fe.op(jit.OpEq, jit.TInt, keyLen, fe.constInt(int64(len(key))))
+	fe.guard(fe.op(jit.OpAnd, jit.TInt, match, sameLen), home, fbField)
+	return data, disp, f.kind, true
+}
+
+// getField translates R(a) := R(b)[K(c)] for a number field of a table.
+func (fe *jitFrontend) getField(a, b, c int) bool {
+	if c&opBitRk == 0 {
+		return false
+	}
+	data, disp, kind, ok := fe.fieldRef(b, fe.proto.stringConstants[c&^opBitRk])
+	if !ok {
+		return false
+	}
+	home, _ := fe.homeSlot(b)
+	cur := fe.load(jit.OpLoad8, jit.TInt, data, disp+int64(offFieldKind))
+	fe.guard(fe.op(jit.OpEq, jit.TInt, cur, fe.constInt(int64(kind))), home, fbField)
+	if kind == fieldInt {
+		fe.set(a, skInt, fe.load(jit.OpLoad64, jit.TInt, data, disp+int64(offFieldNum)))
+	} else {
+		fe.set(a, skFloat, fe.load(jit.OpLoadF64, jit.TFloat, data, disp+int64(offFieldNum)))
+	}
+	return true
+}
+
+// setField translates R(a)[K(b)] := RK(c) for a number stored into a
+// field that holds a number already. The number goes into the unboxed
+// part of the entry; kind and the stale flag, which tells the interpreter
+// to rebuild the boxed value, are written as one word.
+func (fe *jitFrontend) setField(a, b, c int) bool {
+	var key string
+	if b&opBitRk != 0 {
+		key = fe.proto.stringConstants[b&^opBitRk]
+	} else if s := &fe.st[b]; s.kind == skConst {
+		// a key constant that did not fit into the operand
+		ks, isString := fe.consts[s.src].(LString)
+		if !isString {
+			return false
+		}
+		key = string(ks)
+	} else {
+		return false
+	}
+	val, vk, ok := fe.rkNum(c)
+	if !ok {
+		return false
+	}
+	data, disp, _, ok := fe.fieldRef(a, key)
+	if !ok {
+		return false
+	}
+	home, _ := fe.homeSlot(a)
+	// the entry must hold a number: replacing other values can involve
+	// the version counter of the table
+	cur := fe.load(jit.OpLoad8, jit.TInt, data, disp+int64(offFieldKind))
+	fe.guard(fe.op(jit.OpNe, jit.TInt, cur, fe.constInt(int64(fieldBoxed))), home, fbField)
+	kind, store := int64(fieldInt), jit.OpStore64
+	if vk == skFloat {
+		kind, store = int64(fieldFloat), jit.OpStoreF64
+	}
+	fe.f.NewValue(fe.cur, store, jit.TInt, disp+int64(offFieldNum), data, val)
+	fe.f.NewValue(fe.cur, jit.OpStore64, jit.TInt, disp+int64(offFieldKind), data, fe.constInt(kind|1<<8))
 	return true
 }
 

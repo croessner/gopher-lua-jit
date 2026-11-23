@@ -1,6 +1,9 @@
 package lua
 
-import "hash/maphash"
+import (
+	"hash/maphash"
+	"math"
+)
 
 // Initial capacities of the array and hash parts. Both parts are
 // allocated on first use: most tables are small, and many use only one
@@ -11,9 +14,55 @@ const defaultHashCap = 4
 // tableField is one string-keyed entry of a table. A removed entry keeps
 // its position with the value LNil, so that the positions of the other
 // entries and the iteration order stay stable.
+//
+// Numbers are stored unboxed in num (kind fieldInt or fieldFloat), which
+// lets JIT compiled code read and write number fields without touching
+// pointers. For such a field value caches the boxed number; native code
+// that writes num sets stale, and the box is rebuilt on the next read.
 type tableField struct {
 	key   string
 	value LValue
+	num   uint64
+	kind  uint8
+	stale bool
+}
+
+// Kinds of table fields.
+const (
+	fieldBoxed uint8 = iota // any value but a number, in value
+	fieldInt                // an integer, as int64 bits in num
+	fieldFloat              // a float, as float64 bits in num
+)
+
+// get returns the value of the field.
+func (f *tableField) get() LValue {
+	if f.stale {
+		if f.kind == fieldInt {
+			f.value = boxInt(int64(f.num))
+		} else {
+			f.value = LNumber(math.Float64frombits(f.num))
+		}
+		f.stale = false
+	}
+	return f.value
+}
+
+// set stores a value in the field.
+func (f *tableField) set(value LValue) {
+	switch v := value.(type) {
+	case LNumber:
+		f.kind, f.num = fieldFloat, math.Float64bits(float64(v))
+	case LInteger:
+		f.kind, f.num = fieldInt, uint64(v)
+	default:
+		f.kind = fieldBoxed
+	}
+	f.value, f.stale = value, false
+}
+
+// removed reports whether the entry was removed from the table.
+func (f *tableField) removed() bool {
+	return f.kind == fieldBoxed && f.value == LNil
 }
 
 // fieldLinearMax is the number of string-keyed entries up to which a
@@ -429,10 +478,10 @@ func (tb *LTable) RawSetString(key string, value LValue) {
 	i := tb.findField(key)
 	if i >= 0 {
 		f := &tb.fields[i]
-		if tb.watched && f.value != value {
+		if tb.watched && f.kind == fieldBoxed && f.value != value {
 			tb.noteFieldChange(f.value)
 		}
-		f.value = value
+		f.set(value)
 		return
 	}
 	if value == LNil {
@@ -441,7 +490,8 @@ func (tb *LTable) RawSetString(key string, value LValue) {
 	if tb.fields == nil {
 		tb.fields = make([]tableField, 0, defaultHashCap)
 	}
-	tb.fields = append(tb.fields, tableField{key: key, value: value})
+	tb.fields = append(tb.fields, tableField{key: key})
+	tb.fields[len(tb.fields)-1].set(value)
 	switch n := len(tb.fields); {
 	case n <= fieldLinearMax:
 	case 2*n > len(tb.fieldIndex):
@@ -609,7 +659,7 @@ func (tb *LTable) RawGetH(key LValue) LValue {
 // RawGetString returns an LValue associated with a given key without __index metamethod.
 func (tb *LTable) RawGetString(key string) LValue {
 	if i := tb.findField(key); i >= 0 {
-		return tb.fields[i].value
+		return tb.fields[i].get()
 	}
 	return LNil
 }
@@ -633,8 +683,8 @@ func (tb *LTable) ForEach(cb func(LValue, LValue)) {
 		}
 	}
 	for i := 0; i < len(tb.fields); i++ {
-		if f := tb.fields[i]; f.value != LNil {
-			cb(LString(f.key), f.value)
+		if f := &tb.fields[i]; !f.removed() {
+			cb(LString(f.key), f.get())
 		}
 	}
 	if tb.dict != nil {
@@ -685,8 +735,8 @@ func (tb *LTable) Next(key LValue) (LValue, LValue) {
 // entries, followed by the other hash keys.
 func (tb *LTable) nextField(i int) (LValue, LValue) {
 	for ; i < len(tb.fields); i++ {
-		if f := &tb.fields[i]; f.value != LNil {
-			return LString(f.key), f.value
+		if f := &tb.fields[i]; !f.removed() {
+			return LString(f.key), f.get()
 		}
 	}
 	return tb.nextKey(0)
@@ -722,8 +772,9 @@ func (tb *LTable) Clone() *LTable {
 		c.fields = make([]tableField, 0, len(tb.fields))
 		for i := range tb.fields {
 			// removed entries are dropped: nothing refers to their positions
-			if tb.fields[i].value != LNil {
-				c.fields = append(c.fields, tb.fields[i])
+			if f := &tb.fields[i]; !f.removed() {
+				f.get() // the copy must not share a stale box
+				c.fields = append(c.fields, *f)
 			}
 		}
 		if len(c.fields) > fieldLinearMax {
