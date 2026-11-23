@@ -81,6 +81,10 @@ type exitMeta struct {
 	// exit is a failed guard (-1 for none); fbWhat selects what to record.
 	fbSlot int16
 	fbWhat uint8
+	// expected marks a guard whose failure is part of normal operation
+	// (an array that has to grow) rather than a wrong speculation: it
+	// does not count against the unit.
+	expected bool
 	// top is the register behind the last value of an open result list
 	// that the instruction at the exit consumes (-1 for none): the
 	// interpreter finds the end of such a list through the registry top.
@@ -552,6 +556,13 @@ func (fe *jitFrontend) guard(cond *jit.Value, fbSlot int, fbWhat uint8) {
 	x.Snap = fe.snapshot(fe.cur, fe.st, fe.pc, nil)
 	g := fe.f.NewValue(fe.cur, jit.OpGuard, jit.TInt, 0, cond)
 	g.Exit = x
+}
+
+// guardExpected emits a guard whose failure is an ordinary event that the
+// interpreter handles (see exitMeta.expected).
+func (fe *jitFrontend) guardExpected(cond *jit.Value) {
+	fe.guard(cond, -1, 0)
+	fe.meta[len(fe.meta)-1].expected = true
 }
 
 // unsupported ends the current block at an instruction that has no
@@ -1429,24 +1440,31 @@ func (fe *jitFrontend) floatExactInt(v *jit.Value, kind slotKind) *jit.Value {
 
 // floatModIntegral translates a float modulo whose operands hold integral
 // values, the usual case in Lua 5.1 code where every number is a float.
-// The remainder is computed with integers, which is exact. Other operand
-// values deoptimize, as does a zero result whose sign is not known to be
-// positive: for a negative dividend it is negative zero, and a float
-// zero dividend keeps its sign.
+// The remainder is computed with integers, which is exact; other operand
+// values deoptimize. A zero remainder takes the sign of the dividend
+// (negative zero for a negative or negative zero dividend), which the
+// product of the dividend and zero yields without leaving native code.
 func (fe *jitFrontend) floatModIntegral(a int, x *jit.Value, xk slotKind, y *jit.Value, yk slotKind) bool {
 	ix := fe.floatExactInt(x, xk)
 	iy := fe.floatExactInt(y, yk)
 	fe.guard(fe.op(jit.OpNe, jit.TInt, iy, fe.constInt(0)), -1, 0)
 	r := fe.op(jit.OpMod, jit.TInt, ix, iy)
-	nonZero := fe.op(jit.OpNe, jit.TInt, r, fe.constInt(0))
-	cmp := jit.OpLt
-	if xk == skInt {
-		// an integer zero converts to positive zero
-		cmp = jit.OpLe
-	}
-	positive := fe.op(cmp, jit.TInt, fe.constInt(0), ix)
-	fe.guard(fe.op(jit.OpOr, jit.TInt, nonZero, positive), -1, 0)
-	fe.set(a, skFloat, fe.op(jit.OpIntToFloat, jit.TFloat, r))
+	xf := fe.toFloat(x, xk)
+	nonZero, zero := fe.split(fe.op(jit.OpNe, jit.TInt, r, fe.constInt(0)))
+	join := fe.f.NewBlock()
+
+	fe.cur = nonZero
+	remainder := fe.op(jit.OpIntToFloat, jit.TFloat, r)
+	jumpIR(fe.cur, join)
+
+	fe.cur = zero
+	signedZero := fe.op(jit.OpFMul, jit.TFloat, xf, fe.f.ConstFloat(fe.cur, 0))
+	jumpIR(fe.cur, join)
+
+	fe.cur = join
+	result := fe.f.NewPhi(join, jit.TFloat)
+	result.Args = []*jit.Value{remainder, signedZero}
+	fe.set(a, skFloat, result)
 	return true
 }
 
@@ -1832,7 +1850,7 @@ func (fe *jitFrontend) setTable(a, b, c int) bool {
 	fe.cur = grow
 	fe.guard(fe.op(jit.OpEq, jit.TInt, idx, n), -1, 0)
 	capv := fe.load(jit.OpLoad64, jit.TInt, tp, off+sliceOffCap)
-	fe.guard(fe.op(jit.OpULt, jit.TInt, n, capv), -1, 0)
+	fe.guardExpected(fe.op(jit.OpULt, jit.TInt, n, capv))
 	newLen := fe.op(jit.OpAdd, jit.TInt, n, fe.constInt(1))
 	limit := fe.load(jit.OpLoad64, jit.TInt, fe.constInt(int64(uintptr(unsafe.Pointer(&MaxArrayIndex)))), 0)
 	fe.guard(fe.op(jit.OpLt, jit.TInt, newLen, limit), -1, 0)

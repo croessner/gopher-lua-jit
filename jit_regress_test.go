@@ -290,3 +290,69 @@ func TestJITCloseWithLazyMainThread(t *testing.T) {
 	L.Close()
 	requireNoMappedCode(t, L)
 }
+
+// jitStableLoops are programs whose loops must stay compiled: none of
+// their exits is a sign of a wrong speculation.
+var jitStableLoops = map[string]string{
+	// zero dividends are ordinary data, not a reason to leave native code
+	"float modulo with zero dividends": `
+		local function work(seed)
+			local s = 0
+			for i = 0, 400 do s = s + ((i % 5) * seed) % 7 + (i * 0) % 3 end
+			return s
+		end
+		local total = 0
+		for call = 1, 60 do total = total + work(call) end
+		return total`,
+	// a fresh array is filled on every call: growing it is not a failed guess
+	"filling fresh arrays": `
+		local function fill(seed)
+			local t = {}
+			for i = 1, 64 do t[i] = (i * seed) % 17 end
+			local s = 0
+			for i = 1, #t do s = s + t[i] end
+			return s
+		end
+		local total = 0
+		for call = 1, 80 do total = total + fill(call) end
+		return total`,
+	"appending to fresh arrays": `
+		local function fill(seed)
+			local t = {}
+			for i = 1, 100 do t[#t + 1] = i * seed end
+			return #t + t[100]
+		end
+		local total = 0
+		for call = 1, 80 do total = total + fill(call) end
+		return total`,
+}
+
+// TestJITStableLoopsStayNative checks that loops with harmless exits are
+// neither recompiled over and over nor handed back to the interpreter.
+func TestJITStableLoopsStayNative(t *testing.T) {
+	skipWithoutJIT(t)
+	for name, src := range jitStableLoops {
+		for _, version := range []LanguageVersion{Lua51, Lua55} {
+			want, _ := runChunk(Options{LanguageVersion: version}, src)
+			opts := jitTestOptions(version, 5)
+			L := NewState(opts)
+			fn, err := L.LoadString(src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			L.Push(fn)
+			if err := L.PCall(0, MultRet, nil); err != nil {
+				t.Fatalf("%s (%v): %v", name, version, err)
+			}
+			got := fmt.Sprintf("%s:%s", L.Get(1).Type(), L.ToStringMeta(L.Get(1)).String())
+			st := L.JITStats()
+			L.Close()
+			if got != want {
+				t.Errorf("%s (%v): got %s, want %s", name, version, got, want)
+			}
+			if st.Blacklisted != 0 || st.Invalidated != 0 {
+				t.Errorf("%s (%v): loops were discarded or blacklisted: %s", name, version, st)
+			}
+		}
+	}
+}

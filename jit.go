@@ -97,6 +97,12 @@ const (
 	// jitHotExit is the number of times a guard may fail before the unit
 	// is recompiled with the collected type feedback.
 	jitHotExit = 8
+	// jitMinIterations is the number of loop iterations native code has
+	// to execute per exit of one kind for the unit to be kept: below it
+	// the transitions between interpreter and native code cost more than
+	// the native iterations save (measured break-even: between four and
+	// eight iterations of a small loop body).
+	jitMinIterations = 8
 	// jitMaxFlushes is the number of code cache flushes after which the
 	// JIT stops compiling for the state.
 	jitMaxFlushes = 8

@@ -512,9 +512,12 @@ func (ls *LState) jitExitNote(u *jitUnit, id int, m *exitMeta, base int, iterati
 			}
 		}
 	}
+	if m.expected {
+		return
+	}
 	u.exitCounts[id]++
 	n := uint64(u.exitCounts[id])
-	if n < jitHotExit || n*64 <= u.iterations {
+	if n < jitHotExit || n*jitMinIterations <= u.iterations {
 		return
 	}
 	// this exit is taken too often for the unit to pay off
