@@ -28,11 +28,21 @@ work by adding a `replace` directive.
 
 ## Installation
 
+The module keeps GopherLua's import path, so it is used through a `replace`
+directive in the `go.mod` of your program:
+
+```bash
+go mod edit -replace github.com/yuin/gopher-lua=github.com/croessner/gopher-lua-jit@main
+go mod tidy
+```
+
+which results in
+
 ```go
 // go.mod
 require github.com/yuin/gopher-lua v1.1.2
 
-replace github.com/yuin/gopher-lua => <where you host gopher-lua-jit> <version>
+replace github.com/yuin/gopher-lua => github.com/croessner/gopher-lua-jit <version>
 ```
 
 or, for a local checkout:

@@ -4,8 +4,9 @@
 
 The module path is unchanged. Add a `replace` directive and rebuild:
 
-```
-replace github.com/yuin/gopher-lua => <where you host gopher-lua-jit> <version>
+```bash
+go mod edit -replace github.com/yuin/gopher-lua=github.com/croessner/gopher-lua-jit@main
+go mod tidy
 ```
 
 With `lua.NewState()` or an `Options` value that sets neither
