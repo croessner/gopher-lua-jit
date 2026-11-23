@@ -64,8 +64,17 @@ uses the bulk allocator of GopherLua (`alloc.go`), extended to integers.
 
 ### Tables
 
-`LTable` keeps GopherLua's layout (array part, string map, generic map,
-insertion ordered key list). Two things were added:
+`LTable` has an array part, a part for string keys and a generic map with
+an insertion ordered key list for all other keys. Both parts are allocated
+on first use. Compared with GopherLua:
+
+- **String keys** are stored as one insertion ordered slice of key/value
+  entries (`fields`). Tables with up to eight string keys are searched
+  linearly; larger ones get a compact open-addressing index of entry
+  positions (`fieldIndex`). Removed entries keep their position with a nil
+  value, so positions are stable. This replaces two Go maps and one boxed
+  key per entry and is what makes creating many small tables cheap.
+
 
 - **Unboxed array parts.** When enabled for a table (it is for states with
   the JIT on), an array part that only holds integers or only floats is

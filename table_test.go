@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -230,4 +231,127 @@ func TestTableForEach(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestTableFieldIndex exercises string-keyed entries across the linear
+// and the indexed representation, including removal and reinsertion.
+func TestTableFieldIndex(t *testing.T) {
+	tbl := newLTable(0, 0)
+	const n = 500
+	for i := 0; i < n; i++ {
+		tbl.RawSetString(fmt.Sprintf("key%d", i), LNumber(i))
+		for j := 0; j <= i; j += 1 + i/7 {
+			if got := tbl.RawGetString(fmt.Sprintf("key%d", j)); got != LNumber(j) {
+				t.Fatalf("after %d inserts: key%d = %v", i+1, j, got)
+			}
+		}
+		if got := tbl.RawGetString(fmt.Sprintf("key%d", i+1)); got != LNil {
+			t.Fatalf("missing key reported as %v", got)
+		}
+	}
+	// removal keeps the position, reinsertion reuses it
+	for i := 0; i < n; i += 3 {
+		tbl.RawSetString(fmt.Sprintf("key%d", i), LNil)
+	}
+	count := 0
+	var order []string
+	for k, v := tbl.Next(LNil); k != LNil; k, v = tbl.Next(k) {
+		count++
+		order = append(order, string(k.(LString)))
+		if v == LNil {
+			t.Fatalf("traversal returned the removed entry %v", k)
+		}
+	}
+	if want := n - (n+2)/3; count != want {
+		t.Fatalf("traversal visited %d entries, want %d", count, want)
+	}
+	for i := 1; i < len(order); i++ {
+		var a, b int
+		fmt.Sscanf(order[i-1], "key%d", &a)
+		fmt.Sscanf(order[i], "key%d", &b)
+		if a >= b {
+			t.Fatalf("traversal is not in insertion order: %s before %s", order[i-1], order[i])
+		}
+	}
+	tbl.RawSetString("key3", LString("again"))
+	if k, v := tbl.Next(LString("key2")); k != LString("key3") || v != LString("again") {
+		t.Fatalf("a reinserted entry lost its position: next is %v = %v", k, v)
+	}
+	if len(tbl.fields) != n {
+		t.Fatalf("%d entries stored for %d keys", len(tbl.fields), n)
+	}
+}
+
+// TestTableReservedFields checks tables whose string part is sized in
+// advance.
+func TestTableReservedFields(t *testing.T) {
+	L := NewState()
+	defer L.Close()
+	funcs := map[string]LGFunction{}
+	for i := 0; i < 40; i++ {
+		funcs[fmt.Sprintf("fn%d", i)] = func(*LState) int { return 0 }
+	}
+	tbl := L.SetFuncs(L.NewTable(), funcs)
+	if cap(tbl.fields) != len(funcs) {
+		t.Errorf("capacity %d for %d functions", cap(tbl.fields), len(funcs))
+	}
+	for name := range funcs {
+		if tbl.RawGetString(name).Type() != LTFunction {
+			t.Fatalf("%s is missing", name)
+		}
+	}
+	created := L.CreateTable(0, 20)
+	for i := 0; i < 20; i++ {
+		created.RawSetString(fmt.Sprintf("k%d", i), LTrue)
+	}
+	if cap(created.fields) != 20 || created.RawGetString("k19") != LTrue || created.RawGetString("k20") != LNil {
+		t.Errorf("unexpected state of a presized table: cap %d", cap(created.fields))
+	}
+}
+
+// TestTableClone checks that a clone equals a raw copy of every entry
+// and is independent of its source.
+func TestTableClone(t *testing.T) {
+	for _, typed := range []bool{false, true} {
+		src := newLTable(0, 0)
+		src.typedOK = typed
+		for i := 1; i <= 20; i++ {
+			src.RawSetInt(i, LNumber(i*2))
+		}
+		for i := 0; i < 30; i++ {
+			src.RawSetString(fmt.Sprintf("k%d", i), LString(fmt.Sprintf("v%d", i)))
+		}
+		src.RawSetString("k7", LNil)
+		src.RawSetH(LTrue, LString("bool"))
+		src.RawSetH(LNumber(1.5), LString("float"))
+		src.Metatable = newLTable(0, 0)
+
+		clone := src.Clone()
+		if clone.Metatable != LNil {
+			t.Errorf("typed=%v: the metatable was copied", typed)
+		}
+		want := map[string]string{}
+		src.ForEach(func(k, v LValue) { want[k.String()] = v.String() })
+		got := map[string]string{}
+		for k, v := clone.Next(LNil); k != LNil; k, v = clone.Next(k) {
+			got[k.String()] = v.String()
+		}
+		if len(want) != 51 || len(got) != len(want) {
+			t.Fatalf("typed=%v: %d entries cloned, source has %d", typed, len(got), len(want))
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("typed=%v: clone[%s] = %q, want %q", typed, k, got[k], v)
+			}
+		}
+		if clone.Len() != src.Len() || clone.RawGetString("k7") != LNil || clone.RawGetString("k29") != LString("v29") {
+			t.Errorf("typed=%v: unexpected clone content", typed)
+		}
+		clone.RawSetString("k1", LString("changed"))
+		clone.RawSetInt(1, LNumber(99))
+		clone.RawSetString("new", LTrue)
+		if src.RawGetString("k1") != LString("v1") || src.RawGetInt(1) != LNumber(2) || src.RawGetString("new") != LNil {
+			t.Errorf("typed=%v: changing the clone changed the source", typed)
+		}
+	}
 }

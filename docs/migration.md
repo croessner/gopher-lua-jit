@@ -40,6 +40,8 @@ behaviour was already incorrect Lua:
 | Nesting depth of syntax | unlimited (deep nesting overflowed the stack) | at most 200 nested levels of blocks, parentheses and expressions, like reference Lua |
 | `\v` and `\f` between tokens | "Invalid token" | whitespace, as in Lua |
 | More than 255 upvalues in one function | index out of range panic at run time | compile error |
+| Order of `pairs` / `next` / `ForEach` | array part, then hash keys in insertion order (`ForEach`: in random order) | array part, then string keys in insertion order, then other keys in insertion order; `ForEach` uses the same order |
+| `L.NewTable()` | reserved a 32 element array and a hash map for every table | allocates both parts on first use |
 
 Deliberately kept from GopherLua although reference Lua 5.1 differs: a call
 continued on the next line (`f(1)` newline `(g)(2)`) is one statement, and
@@ -95,6 +97,7 @@ New API surface (all additive):
 | `(*LState).JITStats()`, `lua.JITStats` | JIT statistics |
 | `(*LState).JITFlush()` | discard compiled code |
 | `lua.LInteger`, `lua.LVIsInteger`, `lua.LVAsInteger` | integer subtype |
+| `(*LTable).Clone()` | shallow copy of a table without its metatable |
 | `(*LState).CheckInteger`, `OptInteger`, `ToInteger`, `CheckNumberValue` | argument helpers |
 | `lua.CompileWithOptions`, `lua.CompileOptions` | profile aware compiler |
 | `parse.ParseWithOptions`, `parse.Options`, `parse.Version` | profile aware parser |

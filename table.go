@@ -1,5 +1,7 @@
 package lua
 
+import "hash/maphash"
+
 // Initial capacities of the array and hash parts. Both parts are
 // allocated on first use: most tables are small, and many use only one
 // of the parts.
@@ -15,9 +17,13 @@ type tableField struct {
 }
 
 // fieldLinearMax is the number of string-keyed entries up to which a
-// lookup scans the entries instead of using a map: comparing a handful of
-// strings is faster than hashing one, and small tables need no map.
+// lookup scans the entries instead of using the hash index: comparing a
+// handful of strings is faster than hashing one, and small tables need
+// no index.
 const fieldLinearMax = 8
+
+// fieldSeed seeds the hash function of the field indexes of this process.
+var fieldSeed = maphash.MakeSeed()
 
 // Array part representations of a LTable.
 //
@@ -437,31 +443,75 @@ func (tb *LTable) RawSetString(key string, value LValue) {
 	}
 	tb.fields = append(tb.fields, tableField{key: key, value: value})
 	switch n := len(tb.fields); {
-	case tb.fieldIndex != nil:
-		tb.fieldIndex[key] = int32(n - 1)
-	case n > fieldLinearMax:
-		tb.fieldIndex = make(map[string]int32, 2*n)
-		for j := range tb.fields {
-			tb.fieldIndex[tb.fields[j].key] = int32(j)
+	case n <= fieldLinearMax:
+	case 2*n > len(tb.fieldIndex):
+		tb.indexFields(n)
+	default:
+		tb.indexField(n - 1)
+	}
+}
+
+// reserveFields makes room for n more string-keyed entries.
+func (tb *LTable) reserveFields(n int) {
+	if need := len(tb.fields) + n; need > cap(tb.fields) {
+		fields := make([]tableField, len(tb.fields), need)
+		copy(fields, tb.fields)
+		tb.fields = fields
+	}
+}
+
+// indexFields rebuilds the hash index for a table that is going to hold
+// n string-keyed entries. The index is an open-addressing table of entry
+// positions plus one (zero marks a free slot) that is at most half full.
+// Entries are never removed from tb.fields, so neither are index slots.
+func (tb *LTable) indexFields(n int) {
+	size := 4 * fieldLinearMax
+	for size < 2*n {
+		size *= 2
+	}
+	if cap(tb.fields) > n {
+		// the table was sized in advance: do the same for its index
+		for size < 2*cap(tb.fields) {
+			size *= 2
 		}
 	}
+	tb.fieldIndex = make([]uint32, size)
+	for i := range tb.fields {
+		tb.indexField(i)
+	}
+}
+
+// indexField adds the entry at position i to the hash index.
+func (tb *LTable) indexField(i int) {
+	mask := uint64(len(tb.fieldIndex) - 1)
+	slot := maphash.String(fieldSeed, tb.fields[i].key) & mask
+	for tb.fieldIndex[slot] != 0 {
+		slot = (slot + 1) & mask
+	}
+	tb.fieldIndex[slot] = uint32(i + 1)
 }
 
 // findField returns the position of the string-keyed entry key in
 // tb.fields (which may hold LNil if the entry was removed), or -1.
 func (tb *LTable) findField(key string) int {
-	if tb.fieldIndex != nil {
-		if i, ok := tb.fieldIndex[key]; ok {
-			return int(i)
+	if tb.fieldIndex == nil {
+		for i := range tb.fields {
+			if tb.fields[i].key == key {
+				return i
+			}
 		}
 		return -1
 	}
-	for i := range tb.fields {
-		if tb.fields[i].key == key {
-			return i
+	mask := uint64(len(tb.fieldIndex) - 1)
+	for slot := maphash.String(fieldSeed, key) & mask; ; slot = (slot + 1) & mask {
+		pos := tb.fieldIndex[slot]
+		if pos == 0 {
+			return -1
+		}
+		if tb.fields[pos-1].key == key {
+			return int(pos - 1)
 		}
 	}
-	return -1
 }
 
 // noteFieldChange bumps the table version when a watched table replaces
@@ -652,4 +702,38 @@ func (tb *LTable) nextKey(i int) (LValue, LValue) {
 		}
 	}
 	return LNil, LNil
+}
+
+// Clone returns a shallow copy of the table: the copy holds the same keys
+// and values, but not the metatable. It is equivalent to creating a table
+// and raw-setting every entry, without the intermediate allocations.
+func (tb *LTable) Clone() *LTable {
+	c := &LTable{Metatable: LNil, akind: tb.akind, typedOK: tb.typedOK, intKeys: tb.intKeys}
+	if len(tb.array) > 0 {
+		c.array = append(make([]LValue, 0, len(tb.array)), tb.array...)
+	}
+	if len(tb.iarr) > 0 {
+		c.iarr = append(make([]int64, 0, len(tb.iarr)), tb.iarr...)
+	}
+	if len(tb.farr) > 0 {
+		c.farr = append(make([]float64, 0, len(tb.farr)), tb.farr...)
+	}
+	if len(tb.fields) > 0 {
+		c.fields = make([]tableField, 0, len(tb.fields))
+		for i := range tb.fields {
+			// removed entries are dropped: nothing refers to their positions
+			if tb.fields[i].value != LNil {
+				c.fields = append(c.fields, tb.fields[i])
+			}
+		}
+		if len(c.fields) > fieldLinearMax {
+			c.indexFields(len(c.fields))
+		}
+	}
+	for _, key := range tb.keys {
+		if v := tb.dict[key]; v != nil && v != LNil {
+			c.RawSetH(key, v)
+		}
+	}
+	return c
 }

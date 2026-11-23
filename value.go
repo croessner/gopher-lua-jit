@@ -151,7 +151,7 @@ type LTable struct {
 	// search (see table.go). keys and k2i keep the insertion order of the
 	// other hash keys, which live in dict.
 	fields     []tableField
-	fieldIndex map[string]int32
+	fieldIndex []uint32
 	dict       map[LValue]LValue
 	keys       []LValue
 	k2i        map[LValue]int

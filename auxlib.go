@@ -392,6 +392,7 @@ func (ls *LState) RegisterModule(name string, funcs map[string]LGFunction) LValu
 }
 
 func (ls *LState) SetFuncs(tb *LTable, funcs map[string]LGFunction, upvalues ...LValue) *LTable {
+	tb.reserveFields(len(funcs))
 	for fname, fn := range funcs {
 		tb.RawSetString(fname, ls.NewClosure(fn, upvalues...))
 	}
