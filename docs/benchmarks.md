@@ -58,14 +58,19 @@
 | Reference interpreters | Lua 5.5.1, LuaJIT 2.1 (rolling release build) |
 | Settings | `-benchtime=500ms -count=3`, median of the three runs |
 
-The machine is a laptop and was not isolated: other processes ran during
-the measurement (one-minute load average falling from 20 to 7 while
+**The benchmarks ran on an old machine with a base load that was very
+high at times.** The laptop (a 2019 model) is a shared development
+machine and was not isolated: compilers and other processes of unrelated
+work ran on it throughout, with load averages above 100 on its 16
+hardware threads during parts of the day. The reported series was taken
+in a quieter phase (one-minute load average falling from 20 to 7 while
 upstream GopherLua was measured, between 5 and 7 for this runtime and the
-stand-alone interpreters, on 16 hardware threads). Upstream GopherLua and
-this runtime were measured directly after each other. Run-to-run
-variation of individual results was in the order of 10 to 20 percent
-across the series taken that day. Differences smaller than that should
-not be read as real.
+stand-alone interpreters), with upstream GopherLua and this runtime
+measured directly after each other. Run-to-run variation of individual
+results was in the order of 10 to 20 percent across the series taken that
+day. The absolute times are therefore rough; the ratios between the
+implementations are what the numbers are good for, and differences
+smaller than the variation should not be read as real.
 
 ## Results
 

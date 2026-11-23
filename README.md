@@ -106,7 +106,9 @@ More: [examples/basic](examples/basic), [examples/jit](examples/jit),
 | everything else | yes | falls back to the interpreter | cross-compiled only |
 
 Speed, on the benchmark kernels in [`benchmarks/`](benchmarks) (details and
-methodology in [docs/benchmarks.md](docs/benchmarks.md)):
+methodology in [docs/benchmarks.md](docs/benchmarks.md); measured on an old
+laptop with a base load that was very high at times, so read the ratios,
+not the absolute times):
 
 - the interpreter is on par with upstream GopherLua (it is the same design;
   field access and state creation are somewhat faster),
