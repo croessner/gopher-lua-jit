@@ -165,10 +165,12 @@ typical code:
   needs the Go heap and its write barrier; these are callouts by design
   (see the safety model). A loop whose body is mostly such work runs in
   the interpreter.
-- **No hoisting of loop-invariant checks.** Redundant loads and guards are
-  removed inside a basic block, not across loop iterations: a loop over
-  `t[i]` checks on every iteration that `t` is still the same kind of
-  table. LuaJIT removes such checks by peeling the first iteration.
+- **Invariant checks leave innermost loops only.** The first iteration
+  of an innermost loop is peeled off, so that the loop itself no longer
+  repeats what cannot change (that `t` is still the same kind of table,
+  where its elements are). Loops that contain other loops or callouts
+  keep their checks, and nothing is moved out of a loop that the first
+  iteration did not execute.
 - **No native calls.** A Lua function is either translated in place
   (small, without loops) or called through the interpreter; functions
   without loops are never compiled, so recursion is not accelerated.

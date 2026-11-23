@@ -45,9 +45,12 @@ func (m *memBuilder) callout() {
 	co.Exit = m.f.NewExit(ExitCallout, 0)
 }
 
-func (m *memBuilder) guard(cond *Value) {
+func (m *memBuilder) guard(cond *Value) { m.guardAt(cond, 0) }
+
+// guardAt adds a guard whose exit is identified by pc.
+func (m *memBuilder) guardAt(cond *Value, pc int) {
 	g := m.f.NewValue(m.b, OpGuard, TInt, 0, cond)
-	g.Exit = m.f.NewExit(ExitDeopt, 0)
+	g.Exit = m.f.NewExit(ExitDeopt, pc)
 	g.Exit.Snap = []SnapEntry{{Slot: 0, Val: m.f.ConstInt(m.b, -1)}}
 }
 
@@ -203,99 +206,71 @@ func memDisp(mem uint8, j int) int64 {
 }
 
 // buildRandomMem builds a random sequence of loads, stores, callouts and
-// guards. Words of different classes never overlap, as the front end
-// promises; within a class the bases alias whenever their index registers
-// are equal. Unclassified accesses go to any writable region.
+// guards in one block (see memScript).
 func buildRandomMem(seed int64) *Func {
-	rng := rand.New(rand.NewSource(seed))
-	m := newMemBuilder("memrand")
-	bases := make([]*Value, memBases)
-	for k := range bases {
-		bases[k] = m.base(k)
-	}
-	writable := []uint8{MemArrayLen, MemArray, MemField}
-	pool := []*Value{m.f.ConstInt(m.b, 3), loadReg(m.f, m.b, 0)}
-	pick := func() *Value { return pool[rng.Intn(len(pool))] }
-	acc := m.f.ConstInt(m.b, 0)
-	var conds []*Value
-	for n := 20 + rng.Intn(60); n > 0; n-- {
-		base, j := bases[rng.Intn(memBases)], rng.Intn(3)
-		switch r := rng.Intn(100); {
-		case r < 45:
-			mem := MemStable + uint8(rng.Intn(memClasses))
-			region := mem
-			if rng.Intn(8) == 0 {
-				mem, region = MemNone, writable[rng.Intn(len(writable))]
-			}
-			op := OpLoad64
-			if k := rng.Intn(10); k < 3 {
-				op = []Op{OpLoad32, OpLoad8, OpLoad8}[k]
-			}
-			v := m.loadOp(op, mem, base, memDisp(region, j))
-			pool = append(pool, v)
-			acc = m.add(m.f.NewValue(m.b, OpMul, TInt, 0, acc, m.f.ConstInt(m.b, 31)), v)
-		case r < 80:
-			mem := writable[rng.Intn(len(writable))]
-			region := mem
-			if rng.Intn(8) == 0 {
-				mem = MemNone
-			}
-			m.store(mem, base, memDisp(region, j), m.add(pick(), pick()))
-		case r < 85:
-			m.callout()
-		default:
-			// conditions that mostly hold, often checked more than once
-			if len(conds) == 0 || rng.Intn(2) == 0 {
-				conds = append(conds, m.f.NewValue(m.b, OpNe, TInt, 0, pick(), m.f.ConstInt(m.b, int64(rng.Intn(400)))))
-			}
-			m.guard(conds[rng.Intn(len(conds))])
-		}
-	}
-	exitWith(m.f, m.b, acc)
-	return m.f
+	s := newMemScript("memrand", seed)
+	s.run(20 + s.rng.Intn(60))
+	exitWith(s.m.f, s.m.b, s.acc)
+	return s.m.f
 }
 
 // TestMemCSEDifferential runs random memory programs in the reference
 // interpreter and as optimized native code and compares exits, results
 // and memory.
 func TestMemCSEDifferential(t *testing.T) {
-	// what Go code does during a callout: it may change any word
-	disturb := func(regs []uint64) {
-		for i := memRegion; i < len(regs); i++ {
-			regs[i] += uint64(i)
-		}
-	}
 	rng := rand.New(rand.NewSource(1))
 	for seed := int64(0); seed < 500; seed++ {
-		init := make([]uint64, memWords)
-		for k := 0; k < memBases; k++ {
-			init[k] = uint64(rng.Intn(3)) // few indices: bases alias often
-		}
-		for i := memRegion; i < len(init); i++ {
-			init[i] = uint64(rng.Intn(50))
-		}
+		checkAgainstInterpreter(t, seed, func() *Func { return buildRandomMem(seed) }, randomMemory(rng))
+	}
+}
 
-		ref := buildRandomMem(seed)
-		regsI := append([]uint64(nil), init...)
-		ctx := make([]uint64, CtxHeaderWords+64)
-		want := interpret(ref, regsI, ctx, func(*Exit, map[*Value]uint64) { disturb(regsI) })
-		wantVal := uint64(want.exit.Snap[0].Val.Aux)
-		if !want.exit.Snap[0].Val.IsConst() {
-			wantVal = want.vals[want.exit.Snap[0].Val]
-		}
+// buildGuardedBranch builds
+//
+//	if regs[0] != 0 then guard(c) [exit 1] end
+//	guard(c) [exit 2]
+//
+// with c = (regs[1] == 7). The second guard is not redundant: the first
+// one only holds on one of the paths that reach it.
+func buildGuardedBranch() *Func {
+	m := newMemBuilder("guardscope")
+	f := m.f
+	c := f.NewValue(m.b, OpEq, TInt, 0, loadReg(f, m.b, 1), f.ConstInt(m.b, 7))
+	entry := m.b
+	then, skip, join := f.NewBlock(), f.NewBlock(), f.NewBlock()
+	entry.Kind = BlockIf
+	entry.Control = loadReg(f, entry, 0)
+	AddEdge(entry, then)
+	AddEdge(entry, skip)
+	m.b = then
+	m.guardAt(c, 1)
+	AddEdge(then, join)
+	AddEdge(skip, join)
+	m.b = join
+	m.guardAt(c, 2)
+	// a third check of the same condition is covered by the second
+	m.guardAt(c, 3)
+	exitWith(f, join, f.ConstInt(join, 5))
+	return f
+}
 
-		regsN := append([]uint64(nil), init...)
-		got := runNative(t, buildRandomMem(seed), regsN, 1<<30, func(ExitInfo, []uint64) { disturb(regsN) })
-		if got.exit != want.exit.ID {
-			t.Fatalf("seed %d: exit %d, want %d\n%s", seed, got.exit, want.exit.ID, ref)
-		}
-		if v := got.value(0); v != wantVal {
-			t.Fatalf("seed %d: result %#x, want %#x\n%s", seed, v, wantVal, ref)
-		}
-		for i := range regsI {
-			if regsI[i] != regsN[i] {
-				t.Fatalf("seed %d: word %d = %#x, want %#x\n%s", seed, i, regsN[i], regsI[i], ref)
-			}
+// TestGuardEliminationFollowsDominance checks that a guard is only
+// dropped if a guard on the same condition dominates it.
+func TestGuardEliminationFollowsDominance(t *testing.T) {
+	f := buildGuardedBranch()
+	Optimize(f)
+	if got := countValues(f, isGuard); got != 2 {
+		t.Errorf("%d guards remain, want 2\n%s", got, f)
+	}
+	for _, tt := range []struct {
+		regs []uint64
+		pc   int
+	}{
+		{[]uint64{1, 7}, 0}, {[]uint64{0, 7}, 0}, // the condition holds: the end is reached
+		{[]uint64{1, 8}, 1}, {[]uint64{0, 8}, 2},
+	} {
+		r := runNative(t, buildGuardedBranch(), tt.regs, 1, nil)
+		if pc := r.code.Exits[r.exit].PC; pc != tt.pc {
+			t.Errorf("regs %v: left at exit %d, want %d", tt.regs, pc, tt.pc)
 		}
 	}
 }

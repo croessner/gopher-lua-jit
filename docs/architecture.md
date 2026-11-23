@@ -240,22 +240,37 @@ Several kinds of speculation go beyond registers (`jit_frontend.go`,
 
 - IR: typed SSA (64-bit integers and floats), explicit guards, callouts and
   safe points, each carrying a snapshot of the values Go needs at that exit.
-- Optimizer: unreachable code removal, constant folding, algebraic
-  simplification and strength reduction (`x*2^k`, `x//2^k`, `x%2^k`,
-  `x/2^k`), common subexpression elimination along the dominator tree,
-  redundant load and guard elimination, phi simplification, dead code
-  elimination.
+- Optimizer: unreachable code removal, loop peeling, constant folding,
+  algebraic simplification and strength reduction (`x*2^k`, `x//2^k`,
+  `x%2^k`, `x/2^k`), common subexpression elimination, redundant load
+  and guard elimination (both along the dominator tree), phi
+  simplification, dead code elimination.
+- Loop peeling (`peel.go`) is how checks that do not depend on the
+  iteration leave a loop. Hoisting them would need a proof that each one
+  is safe to execute earlier than the program does (a load must not move
+  above the type check that makes its address valid). Instead the body of
+  an innermost loop without callouts is copied in front of the loop, so
+  that the first iteration runs in the copy, with its exits and
+  snapshots. Everything that iteration checked or loaded then dominates
+  the loop, and the two elimination passes delete from the loop what
+  nothing in it can change: the type and layout checks of a table that
+  the loop only reads, the address of its elements, a method lookup, the
+  cell of an upvalue. What depends on the iteration stays: bounds checks,
+  element loads, loads of memory the loop stores to. Values of the loop
+  that are used behind it get phis where the loop and its copy meet.
 - Memory is described to the optimizer by classes, not by an alias
   analysis. The front end marks every load and store with what it touches:
   memory that compiled code never writes (table headers, metatables, the
   data pointers and capacities of slices, closures, boxed values), the length word of an unboxed array, an
   unboxed array element, or the number and kind words of a table field.
-  Inside a block a load is replaced by an earlier load of the same address
-  until something could have changed that word: a store of the same class
-  (other than to a different word of the same object), an unclassified
-  store, or a callout or safe point, after which nothing is assumed. A
-  stored number is forwarded to a later load of the same word, and a guard
-  on a condition that an earlier guard of the block established is dropped.
+  A load is replaced by a dominating load of the same address unless
+  something on a path between the two could have changed that word: a
+  store of the same class (inside a block: other than to a different word
+  of the same object), an unclassified store, or a callout, after which
+  nothing is assumed. For the header of a loop the paths include the
+  loop itself. A safe point changes nothing. A stored number is forwarded
+  to a later load of the same word, and a guard on a condition that a
+  dominating guard established is dropped.
   This removes the repeated metatable, kind and bounds checks of code such
   as `p.x = p.x + p.y` or `t[i] = t[i] + t[i-1]`.
 - Register allocation: linear scan over live intervals with spill slots in
