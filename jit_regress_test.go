@@ -593,3 +593,237 @@ func TestJITBoolArrayPrograms(t *testing.T) {
 		}
 	}
 }
+
+// jitUpvaluePrograms exercise upvalues read by compiled code.
+var jitUpvaluePrograms = map[string]string{
+	"number upvalues": `
+		local k, f = 3, 0.5
+		local function run(n) local s = 0 for i = 1, n do s = s + i * k + f end return s end
+		local a = run(200)
+		k, f = 7, 2
+		return a, run(200)`,
+	"upvalue changes kind": `
+		local k = 1
+		local function run(n) local s = 0 for i = 1, n do s = s + (tonumber(k) or 0) + (type(k) == "number" and k or 100) end return s end
+		local out = {}
+		for _, v in ipairs({2, 2.5, "3", false, 4}) do k = v out[#out + 1] = run(100) end
+		return table.concat(out, ",")`,
+	"upvalue assigned inside the loop": `
+		local k = 0
+		local function bump() k = k + 1 end
+		local function run(n) local s = 0 for i = 1, n do s = s + k if i % 10 == 0 then bump() end end return s end
+		return run(300), k`,
+	"open upvalue of the running function": `
+		local s = 0
+		for round = 1, 3 do
+			local k = round
+			local function get() return k end
+			for i = 1, 100 do s = s + k * i k = k + 1 end
+			s = s + get()
+		end
+		return s`,
+	"function and table upvalues": `
+		local lib = {scale = 2}
+		local function double(x) return x * lib.scale end
+		local function run(n) local s = 0 for i = 1, n do s = s + double(i) end return s end
+		local a = run(100)
+		lib.scale = 3
+		local b = run(100)
+		double = function(x) return -x end
+		return a, b, run(100)`,
+	"closures of one prototype with different upvalues": `
+		local function make(k) return function(n) local s = 0 for i = 1, n do s = s + i * k end return s end end
+		local a, b, c = make(1), make(2.5), make(10)
+		local s = 0
+		for round = 1, 30 do s = s + a(20) + b(20) + c(20) end
+		return s`,
+}
+
+func TestJITUpvaluePrograms(t *testing.T) {
+	skipWithoutJIT(t)
+	for name, src := range jitUpvaluePrograms {
+		name, src := name, src
+		t.Run(name, func(t *testing.T) {
+			checkJITMatchesInterpreter(t, name, src)
+		})
+	}
+	for _, version := range []LanguageVersion{Lua51, Lua55} {
+		_, st := runChunk(jitTestOptions(version, 5), `
+			local k = 3
+			local function run(n) local s = 0 for i = 1, n do s = s + i * k end return s end
+			return run(20000)`)
+		if st.Compiled == 0 || st.Callouts > 100 || st.Blacklisted != 0 {
+			t.Errorf("%v: reading a number upvalue is not native: %s", version, st)
+		}
+	}
+}
+
+// jitInlinePrograms exercise calls of small Lua functions that compiled
+// loops translate in place.
+var jitInlinePrograms = map[string]string{
+	"upvalue function": `
+		local function add(a, b) return a + b end
+		local function run(n) local s = 0 for i = 1, n do s = add(s, i) end return s end
+		return run(300)`,
+	"local function in the same frame": `local function mul(a, b) return a * b + 1 end local s = 0 for i = 1, 300 do s = s + mul(i, 3) end return s`,
+	"global function":                  `function gadd(a, b) return a + b * 2 end local s = 0 for i = 1, 300 do s = gadd(s, i) end gadd = nil return s`,
+	"missing and surplus arguments": `
+		local function f(a, b, c) return a, b, c end
+		local function g(a) return a end
+		local n = 0
+		for i = 1, 200 do
+			local x, y, z = f(i)
+			if y == nil and z == nil then n = n + x end
+			n = n + g(i, i * 2, i * 3)
+		end
+		return n`,
+	"results adjusted": `
+		local function two(a) return a, a * 2 end
+		local function none() return end
+		local s = 0
+		for i = 1, 200 do
+			local a = two(i)
+			local b, c, d = two(i)
+			local e = none()
+			two(i)
+			s = s + a + b + c + (d == nil and 1 or 0) + (e == nil and 1 or 0)
+		end
+		return s`,
+	"nested calls": `
+		local function sq(x) return x * x end
+		local function norm(x, y) return sq(x) + sq(y) end
+		local function dist(ax, ay, bx, by) return norm(ax - bx, ay - by) end
+		local s = 0
+		for i = 1, 300 do s = s + dist(i, 2, 3, i * 0.5) end
+		return s`,
+	"callee reads and writes fields": `
+		local function bump(p, d) p.x = p.x + d return p.x end
+		local function getx(p) return p.x end
+		local p = {x = 0}
+		local s = 0
+		for i = 1, 300 do s = s + bump(p, i) + getx(p) end
+		return s, p.x`,
+	"callee with upvalues": `
+		local scale, offset = 3, 0.5
+		local function f(x) return x * scale + offset end
+		local s = 0
+		for i = 1, 300 do s = s + f(i) if i == 150 then scale = 4 end end
+		return s`,
+	"callee replaced during the loop": `
+		local function a(x) return x + 1 end
+		local function b(x) return x * 2 end
+		local f = a
+		local s = 0
+		for i = 1, 300 do s = s + f(i) if i % 70 == 0 then f = (f == a) and b or a end end
+		return s`,
+	"argument changes type": `
+		local function f(x) return x + 1 end
+		local s = 0
+		for i = 1, 300 do
+			local v = i
+			if i % 50 == 0 then v = tostring(i) end
+			s = s + f(v)
+		end
+		return s`,
+	"error inside the callee": `
+		local function f(x, t) return x + t.v end
+		local t = {v = 1}
+		local ok, msg = pcall(function()
+			local s = 0
+			for i = 1, 300 do
+				if i == 250 then t.v = nil end
+				s = s + f(i, t)
+			end
+			return s
+		end)
+		return ok, (tostring(msg):gsub("^.-:%d+: ", ""))`,
+	"traceback from the callee": `
+		local function inner(x, t) return x + t.v end
+		local function outer(x, t) return inner(x, t) end
+		local t = {v = 1}
+		local trace
+		xpcall(function()
+			local s = 0
+			for i = 1, 300 do
+				if i == 250 then t.v = {} end
+				s = s + outer(i, t)
+			end
+		end, function(m) trace = debug.traceback(m) end)
+		local names = 0
+		for _ in trace:gmatch("in function") do names = names + 1 end
+		return names >= 3, (trace:match("attempt to[^\n]*"))`,
+	"callee uses a library function": `
+		local function half(x) return math.floor(x / 2) end
+		local s = 0
+		for i = 1, 300 do s = s + half(i) end
+		return s`,
+	"library function replaced for the callee": `
+		local floor = math.floor
+		local function half(x) return math.floor(x / 2) end
+		local s = 0
+		for i = 1, 300 do
+			if i == 200 then math.floor = function() return 1000 end end
+			s = s + half(i)
+		end
+		math.floor = floor
+		return s`,
+	"recursive function is not inlined": `
+		local function fact(n) return n <= 1 and 1 or n * fact(n - 1) end
+		local s = 0
+		for i = 1, 100 do s = s + fact(i % 10) end
+		return s`,
+	"call results as arguments": `
+		local function inc(x) return x + 1 end
+		local function add(a, b) return a + b end
+		local s = 0
+		for i = 1, 300 do s = add(inc(s), inc(inc(i))) end
+		return s`,
+	"callee returns its table argument": `
+		local function id(t) return t end
+		local function first(t) return t[1] end
+		local t = {5, 6, 7}
+		local s = 0
+		for i = 1, 300 do local u = id(t) s = s + first(u) + #id(u) end
+		return s`,
+	"many arguments and locals": `
+		local function f(a, b, c, d, e, g)
+			local x = a + b
+			local y = c * d
+			local z = e - g
+			return x + y + z, x * y
+		end
+		local s, p = 0, 0
+		for i = 1, 300 do local u, v = f(i, 1, 2, 3, i, 4) s = s + u p = p + v % 7 end
+		return s, p`,
+	"coroutine yields from a callee": `
+		local function emit(x) coroutine.yield(x) return x * 2 end
+		local co = coroutine.wrap(function() local s = 0 for i = 1, 100 do s = s + emit(i) end return s end)
+		local seen = 0
+		for i = 1, 100 do seen = seen + co() end
+		return seen, co()`,
+}
+
+func TestJITInlinePrograms(t *testing.T) {
+	skipWithoutJIT(t)
+	for name, src := range jitInlinePrograms {
+		name, src := name, src
+		t.Run(name, func(t *testing.T) {
+			checkJITMatchesInterpreter(t, name, src)
+		})
+	}
+}
+
+// TestJITInlinedCallsAreNative checks that calls of small functions do
+// not leave native code.
+func TestJITInlinedCallsAreNative(t *testing.T) {
+	skipWithoutJIT(t)
+	for _, name := range []string{"upvalue function", "local function in the same frame", "nested calls", "callee reads and writes fields", "call results as arguments"} {
+		for _, version := range []LanguageVersion{Lua51, Lua55} {
+			src := strings.Replace(jitInlinePrograms[name], "300", "20000", -1)
+			_, st := runChunk(jitTestOptions(version, 5), src)
+			if st.Compiled == 0 || st.Callouts > 200 || st.Blacklisted != 0 || st.Deopts > 50 {
+				t.Errorf("%s (%v): calls are not inlined: %s", name, version, st)
+			}
+		}
+	}
+}

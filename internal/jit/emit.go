@@ -19,6 +19,15 @@ const (
 	CtxFuel = 24
 	// CtxResult is a scratch word used to pass a callout result.
 	CtxResult = 32
+	// CtxClosure holds the address of the closure whose code is running
+	// (filled in by the embedder before every entry).
+	CtxClosure = 40
+	// CtxBase holds the index of the first register of the running
+	// function in the Lua registry (filled in by the embedder).
+	CtxBase = 48
+	// CtxRegistry holds the address of the registry object of the
+	// running thread (filled in by the embedder).
+	CtxRegistry = 56
 	// CtxSaveG is the save area of the allocatable integer registers.
 	CtxSaveG = 64
 	// CtxSaveF is the save area of the allocatable float registers.

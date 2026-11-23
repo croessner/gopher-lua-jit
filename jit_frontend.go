@@ -81,6 +81,13 @@ type exitMeta struct {
 	// exit is a failed guard (-1 for none); fbWhat selects what to record.
 	fbSlot int16
 	fbWhat uint8
+	// fbPC identifies the instruction in feedback keys (it differs from
+	// the bytecode position for instructions of inlined functions).
+	fbPC int32
+	// inl is the inlined call the exit lies in (index into the inlined
+	// calls of the unit plus one, zero for none): the interpreter resumes
+	// in a frame of the callee that has to be created first.
+	inl int16
 	// expected marks a guard whose failure is part of normal operation
 	// (an array that has to grow) rather than a wrong speculation: it
 	// does not count against the unit.
@@ -178,6 +185,9 @@ type jitFrontend struct {
 	frame   []LValue
 	entryPC int
 	nslots  int
+	// base is the registry index of the function's first register in
+	// the activation the code is compiled for.
+	base int
 
 	f      *jit.Func
 	blocks map[int]*feBlock
@@ -212,16 +222,48 @@ type jitFrontend struct {
 	openTop    int
 	pendingTop int
 
+	// inlined lists the calls whose callee was translated in place; inl
+	// is the innermost one being translated right now (index plus one,
+	// zero while the code of the compiled function itself is translated).
+	// scope is the closure whose code is being translated, slotBase the
+	// slot of its register 0 and fbBase the prefix of its feedback keys.
+	inlined  []inlineCall
+	inl      int
+	scope    *LFunction
+	slotBase int
+	fbBase   int32
+
 	// statistics for the profitability check
 	nativeOps int
 	callouts  int
 }
 
+// inlineCall describes a call whose callee is translated in place. It is
+// what the interpreter needs to continue inside the callee: the frame of
+// an inlined call only exists once an exit creates it.
+type inlineCall struct {
+	callee *LFunction
+	callPC int // position of the call in the calling code
+	ra     int // slot of the function value
+	nargs  int
+	nret   int // number of results the caller expects (-1: all)
+	// tail marks a tail call: its frame takes the place of the frame of
+	// the calling function, which is the previous entry of the chain.
+	tail   bool
+	parent int // enclosing inlined call (index plus one), zero for none
+	// live are the slots written back at exits inside the callee: what
+	// the callers still need and the whole frame of the callee.
+	live regSet
+	// site is the feedback key that stops inlining at this call.
+	site feedbackKey
+}
+
 // compileLoopIR translates the region starting at the loop header entryPC
 // into IR. frame is the register window of the running function.
-func compileLoopIR(L *LState, jp *jitProto, fn *LFunction, frame []LValue, entryPC int) (*jit.Func, *jitFrontend, error) {
+func compileLoopIR(L *LState, jp *jitProto, fn *LFunction, frame []LValue, base, entryPC int) (*jit.Func, *jitFrontend, error) {
 	fe := &jitFrontend{
-		L: L, jp: jp, fn: fn, proto: jp.proto, info: jp.proto.analysis(),
+		base: base,
+		L:    L, jp: jp, fn: fn, scope: fn, proto: jp.proto, info: jp.proto.analysis(),
 		env:   functionEnv(fn),
 		frame: frame, entryPC: entryPC, nslots: jp.proto.analysis().nslots,
 		demoted:     make(map[demoteKey]bool),
@@ -262,6 +304,7 @@ func (fe *jitFrontend) translate() (err error) {
 	fe.f = jit.NewFunc(fmt.Sprintf("%s:%d@%d", fe.proto.SourceName, fe.proto.LineDefined, fe.entryPC))
 	fe.openTop = -1
 	fe.pendingTop = -1
+	fe.inlined = fe.inlined[:0]
 	fe.meta = fe.meta[:0]
 	fe.consts = fe.consts[:0]
 	fe.keep = fe.keep[:0]
@@ -510,6 +553,8 @@ func (fe *jitFrontend) speculateLoopStep() {
 // newExit creates an exit with front end data.
 func (fe *jitFrontend) newExit(kind jit.ExitKind, pc int, m exitMeta) *jit.Exit {
 	m.top = -1
+	m.fbPC = fe.fbBase + int32(pc)
+	m.inl = int16(fe.inl)
 	if fe.pendingTop >= 0 && pc == fe.pc && (m.kind == emDeopt || m.kind == emUnsupported || m.kind == emInst) {
 		m.top = int16(fe.pendingTop)
 	}
@@ -527,6 +572,9 @@ func (fe *jitFrontend) newExit(kind jit.ExitKind, pc int, m exitMeta) *jit.Exit 
 func (fe *jitFrontend) snapshot(b *jit.Block, st []slotState, pc int, only func(slot int) bool) []jit.SnapEntry {
 	var snap []jit.SnapEntry
 	live := &fe.info.liveIn[pc]
+	if fe.inl != 0 {
+		live = &fe.inlined[fe.inl-1].live
+	}
 	for slot := range st {
 		s := &st[slot]
 		if !s.stale() || !live.has(slot) {
@@ -891,7 +939,7 @@ func (fe *jitFrontend) unbox(slot int, kind slotKind) *jit.Value {
 // current instruction: recorded feedback first, else the value the
 // register holds right now.
 func (fe *jitFrontend) predictKind(slot int) uint8 {
-	if k, ok := fe.jp.feedback[feedbackKey{int32(fe.pc), int16(slot), fbValue}]; ok {
+	if k, ok := fe.jp.feedback[feedbackKey{fe.fbpc(), int16(slot), fbValue}]; ok {
 		return k
 	}
 	return valueKind(fe.frame[slot])
@@ -969,7 +1017,7 @@ func (fe *jitFrontend) constIndex(v LValue) int32 {
 // inst translates the instruction at pc. It returns the pc of the next
 // instruction and whether the instruction ended the current block.
 func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
-	inst := fe.proto.Code[pc]
+	inst := fe.code(pc)
 	op := opGetOpCode(inst)
 	A, B, C := opGetArgA(inst), opGetArgB(inst), opGetArgC(inst)
 	next = pc + 1
@@ -1080,6 +1128,10 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 		if !fe.constGlobal(A, opGetArgBx(inst)) {
 			return fe.generic(pc, op)
 		}
+	case OP_GETUPVAL:
+		if !fe.getUpval(A, B) {
+			return fe.generic(pc, op)
+		}
 	case OP_GETTABLEKS:
 		if !fe.constField(A, B, C) && !fe.getField(A, B, C) {
 			return fe.generic(pc, op)
@@ -1097,6 +1149,12 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 			B = openTop - A
 		}
 		if !fe.intrinsicCall(A, B, C) {
+			if done, ended := fe.inlineCall(A, B, C); done {
+				if ended {
+					return 0, true
+				}
+				break
+			}
 			return fe.generic(pc, op)
 		}
 	case OP_SETTABLE:
@@ -1114,6 +1172,12 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 // instructions are executed by the interpreter through a callout, others
 // end the compiled region.
 func (fe *jitFrontend) generic(pc, op int) (int, bool) {
+	if fe.inl != 0 {
+		// the interpreter cannot run a single instruction of a function
+		// that has no frame: hand over for good
+		fe.unsupported()
+		return 0, true
+	}
 	inst := fe.proto.Code[pc]
 	A, B, C := opGetArgA(inst), opGetArgB(inst), opGetArgC(inst)
 	next := fe.info.effects[pc].succs[0]
@@ -1198,7 +1262,14 @@ func (fe *jitFrontend) constGlobal(a, kidx int) bool {
 	if !constValue(v) {
 		return false
 	}
-	fe.usesEnv = true
+	if fe.inl != 0 {
+		// the environment of an inlined callee is checked where it is
+		// used: the entry check only covers the compiled function
+		cur := fe.load(jit.OpLoad64, jit.TInt, fe.closureAddr(), int64(offFnEnv))
+		fe.guard(fe.op(jit.OpEq, jit.TInt, cur, fe.constInt(int64(uintptr(unsafe.Pointer(fe.env))))), -1, 0)
+	} else {
+		fe.usesEnv = true
+	}
 	fe.guardVersion(fe.env)
 	fe.st[a] = slotState{kind: skConst, src: fe.constIndex(v)}
 	return true
@@ -1761,7 +1832,7 @@ func (fe *jitFrontend) tableOf(slot int) (tp *jit.Value, home int, ok bool) {
 // arrayKindOf predicts the array representation of the table in a home
 // slot at the current instruction.
 func (fe *jitFrontend) arrayKindOf(home int) uint8 {
-	if k, ok := fe.jp.feedback[feedbackKey{int32(fe.pc), int16(home), fbArray}]; ok {
+	if k, ok := fe.jp.feedback[feedbackKey{fe.fbpc(), int16(home), fbArray}]; ok {
 		return k
 	}
 	if tb, ok := fe.frame[home].(*LTable); ok {
@@ -1922,6 +1993,109 @@ func (fe *jitFrontend) setTable(a, b, c int) bool {
 	return true
 }
 
+// curFn returns the closure whose code is being translated.
+func (fe *jitFrontend) curFn() *LFunction {
+	return fe.scope
+}
+
+// fbpc returns the position of the current instruction for feedback keys.
+func (fe *jitFrontend) fbpc() int32 {
+	return fe.fbBase + int32(fe.pc)
+}
+
+// code returns the instruction at pc of the code being translated, with
+// its register operands relocated into the slots of the unit.
+func (fe *jitFrontend) code(pc int) uint32 {
+	inst := fe.proto.Code[pc]
+	if fe.slotBase != 0 {
+		inst, _ = relocateInst(inst, fe.slotBase)
+	}
+	return inst
+}
+
+// closureAddr returns the address of the closure whose code is being
+// translated. For the compiled function itself it is only known at run
+// time: all closures of a prototype share the compiled code.
+func (fe *jitFrontend) closureAddr() *jit.Value {
+	if fe.inl != 0 {
+		// an inlined callee is a constant of the code (kept alive by the
+		// list of inlined calls)
+		return fe.constInt(int64(uintptr(unsafe.Pointer(fe.scope))))
+	}
+	return fe.load(jit.OpLoad64, jit.TInt, fe.f.Ctx(), jit.CtxClosure)
+}
+
+// getUpval translates R(a) := Upvalue(idx) for a closed upvalue that
+// holds a number, a function or a table. Numbers are unboxed; functions
+// and tables become constants of the code, guarded by their identity
+// (the usual case is a local function or module table captured by the
+// compiled function).
+func (fe *jitFrontend) getUpval(a, idx int) bool {
+	fn := fe.curFn()
+	if idx >= len(fn.Upvalues) || fn.Upvalues[idx] == nil {
+		return false
+	}
+	if fe.jp.feedback[feedbackKey{fe.fbpc(), int16(a), fbUpval}] >= jitFieldMisses {
+		return false
+	}
+	uv := fn.Upvalues[idx]
+	open := !uv.closed && uv.reg != nil
+	if !open && !uv.closed {
+		return false
+	}
+	// a variable of the running activation, captured by an inlined
+	// callee: the register itself is read, whatever form it has now
+	own := -1
+	if open && fe.inl != 0 && uv.reg == fe.L.reg && uv.index >= fe.base && uv.index < fe.base+fe.info.nslots {
+		own = uv.index - fe.base
+	}
+	value := uv.Value()
+	kind := valueKind(value)
+	if own < 0 && kind != vkInt && kind != vkFloat && !constValue(value) {
+		return false
+	}
+	cells := fe.load(jit.OpLoad64, jit.TInt, fe.closureAddr(), int64(offFnUpvalues)+sliceOffData)
+	cell := fe.load(jit.OpLoad64, jit.TInt, cells, int64(idx)*8)
+	closed := fe.load(jit.OpLoad8, jit.TInt, cell, int64(offUvClosed))
+	var itab, data *jit.Value
+	if open {
+		// the value lives in a register of an active function, found
+		// relative to the registers of this one
+		// (of this thread: a coroutine has registers of its own)
+		fe.guard(fe.op(jit.OpEq, jit.TInt, closed, fe.constInt(0)), a, fbUpval)
+		owner := fe.load(jit.OpLoad64, jit.TInt, cell, int64(offUvReg))
+		fe.guard(fe.op(jit.OpEq, jit.TInt, owner, fe.load(jit.OpLoad64, jit.TInt, fe.f.Ctx(), jit.CtxRegistry)), a, fbUpval)
+		index := fe.load(jit.OpLoad64, jit.TInt, cell, int64(offUvIndex))
+		rel := fe.op(jit.OpSub, jit.TInt, index, fe.load(jit.OpLoad64, jit.TInt, fe.f.Ctx(), jit.CtxBase))
+		if own >= 0 {
+			fe.guard(fe.op(jit.OpEq, jit.TInt, rel, fe.constInt(int64(own))), a, fbUpval)
+			fe.move(a, own)
+			return true
+		}
+		// (registers below this function's are in memory: the functions
+		// they belong to wait for a call to return)
+		fe.guard(fe.op(jit.OpLt, jit.TInt, rel, fe.constInt(0)), a, fbUpval)
+		addr := fe.op(jit.OpAdd, jit.TInt, fe.f.RegBase(), fe.op(jit.OpShl, jit.TInt, rel, fe.constInt(4)))
+		itab = fe.load(jit.OpLoad64, jit.TInt, addr, 0)
+		data = fe.load(jit.OpLoad64, jit.TInt, addr, 8)
+	} else {
+		fe.guard(fe.op(jit.OpNe, jit.TInt, closed, fe.constInt(0)), a, fbUpval)
+		itab = fe.load(jit.OpLoad64, jit.TInt, cell, int64(offUvValue))
+		data = fe.load(jit.OpLoad64, jit.TInt, cell, int64(offUvValue)+8)
+	}
+	fe.guard(fe.op(jit.OpEq, jit.TInt, itab, fe.constInt(int64(itabOf(value)))), a, fbUpval)
+	switch kind {
+	case vkInt:
+		fe.set(a, skInt, fe.load(jit.OpLoad64, jit.TInt, data, 0))
+	case vkFloat:
+		fe.set(a, skFloat, fe.load(jit.OpLoadF64, jit.TFloat, data, 0))
+	default:
+		fe.guard(fe.op(jit.OpEq, jit.TInt, data, fe.constInt(int64(uintptr(dataOf(value))))), a, fbUpval)
+		fe.st[a] = slotState{kind: skConst, src: fe.constIndex(value)}
+	}
+	return true
+}
+
 // fieldRef locates the number field key of the table in register slot
 // and emits the guards under which native code may access it in place:
 // the register holds a table whose string-keyed entry at the position
@@ -1939,7 +2113,7 @@ func (fe *jitFrontend) fieldRef(slot int, key string) (data *jit.Value, disp int
 		return nil, 0, 0, false
 	}
 	tb, isTable := fe.frame[home].(*LTable)
-	if !isTable || fe.jp.feedback[feedbackKey{int32(fe.pc), int16(home), fbField}] >= jitFieldMisses {
+	if !isTable || fe.jp.feedback[feedbackKey{fe.fbpc(), int16(home), fbField}] >= jitFieldMisses {
 		return nil, 0, 0, false
 	}
 	idx := tb.findField(key)

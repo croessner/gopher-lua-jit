@@ -186,7 +186,7 @@ func (js *jitState) compile(L *LState, cf *callFrame, jp *jitProto, lp *jitLoop)
 	if base+nslots > len(L.reg.array) {
 		return nil
 	}
-	f, fe, err := compileLoopIR(L, jp, cf.Fn, L.reg.array[base:base+nslots], lp.pc)
+	f, fe, err := compileLoopIR(L, jp, cf.Fn, L.reg.array[base:base+nslots], base, lp.pc)
 	if err != nil {
 		js.stats.CompileFailed++
 		js.blacklist(lp, err.Error())
@@ -229,8 +229,9 @@ func (js *jitState) compile(L *LState, cf *callFrame, jp *jitProto, lp *jitLoop)
 	u = &jitUnit{
 		block: block, addr: block.Addr(), code: code, loop: lp, jp: jp,
 		meta: append([]exitMeta(nil), fe.meta...), consts: append([]LValue(nil), fe.consts...),
-		nslots: nslots, exitCounts: make([]uint32, len(code.Exits)),
-		keep: append([]*LTable(nil), fe.keep...), nativeOps: fe.nativeOps,
+		nslots: fe.nslots, inlined: append([]inlineCall(nil), fe.inlined...),
+		exitCounts: make([]uint32, len(code.Exits)),
+		keep:       append([]*LTable(nil), fe.keep...), nativeOps: fe.nativeOps,
 	}
 	if fe.usesEnv {
 		u.env = fe.env
@@ -380,6 +381,9 @@ func (ls *LState) jitRun(cf *callFrame, u *jitUnit, baseframe *callFrame) int {
 
 	fuel := js.fuel
 	frame[jit.CtxFuel/8] = fuel
+	frame[jit.CtxClosure/8] = uint64(uintptr(unsafe.Pointer(cf.Fn)))
+	frame[jit.CtxBase/8] = uint64(base)
+	frame[jit.CtxRegistry/8] = uint64(uintptr(unsafe.Pointer(ls.reg)))
 	target := u.addr + uintptr(u.code.EntryOffset)
 	result := 0
 loop:
@@ -471,9 +475,15 @@ loop:
 			js.stats.Deopts++
 			ls.jitApply(u, x.Entries, frame, base)
 			ls.jitOpenTop(m, base)
-			cf.Pc = x.PC
-
 			ls.jitExitNote(u, id, m, base, fuel-frame[jit.CtxFuel/8])
+			if m.inl != 0 {
+				// the exit lies in an inlined call: the interpreter
+				// continues in a frame of the callee
+				ls.jitLeave(th)
+				ls.jitEnterInlined(u, int(m.inl), cf, base, x.PC)
+				return result
+			}
+			cf.Pc = x.PC
 			break loop
 		}
 	}
@@ -501,7 +511,7 @@ func (ls *LState) jitExitNote(u *jitUnit, id int, m *exitMeta, base int, iterati
 	}
 	x := &u.code.Exits[id]
 	if m.fbSlot >= 0 {
-		key := feedbackKey{int32(x.PC), m.fbSlot, m.fbWhat}
+		key := feedbackKey{m.fbPC, m.fbSlot, m.fbWhat}
 		v := ls.reg.array[base+int(m.fbSlot)]
 		switch m.fbWhat {
 		case fbValue:
@@ -510,7 +520,7 @@ func (ls *LState) jitExitNote(u *jitUnit, id int, m *exitMeta, base int, iterati
 			if tb, ok := v.(*LTable); ok {
 				u.jp.feedback[key] = tb.akind
 			}
-		case fbField:
+		case fbField, fbUpval, fbInline:
 			if u.jp.feedback[key] < jitFieldMisses {
 				u.jp.feedback[key]++
 			}
@@ -526,6 +536,18 @@ func (ls *LState) jitExitNote(u *jitUnit, id int, m *exitMeta, base int, iterati
 	}
 	// this exit is taken too often for the unit to pay off
 	lp := u.loop
+	if m.inl != 0 {
+		// it lies in an inlined callee: compile again without inlining
+		// the outermost call around it
+		call := &u.inlined[m.inl-1]
+		for call.parent != 0 {
+			call = &u.inlined[call.parent-1]
+		}
+		u.jp.feedback[call.site] = jitFieldMisses
+		js.discard(u)
+		js.logf("discard unit at pc %d: inlined call at pc %d leaves native code too often", lp.pc, call.callPC)
+		return
+	}
 	js.discard(u)
 	switch m.kind {
 	case emUnsupported, emInst:

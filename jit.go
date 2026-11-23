@@ -115,6 +115,13 @@ const (
 	// access is left to the interpreter: the site sees tables of several
 	// layouts.
 	jitFieldMisses = 3
+	// jitMaxInlineInsts bounds the size of a function that is translated
+	// in place of a call and jitMaxInlineDepth the nesting of such calls.
+	jitMaxInlineInsts = 40
+	jitMaxInlineDepth = 3
+	// jitMaxSlots bounds the registers a unit may use including the
+	// frames of inlined calls (register operands are eight bits wide).
+	jitMaxSlots = 250
 	// jitMaxDepth bounds the nesting of native activations of a thread.
 	jitMaxDepth = 64
 )
@@ -207,9 +214,11 @@ type feedbackKey struct {
 
 // Kinds of feedback.
 const (
-	fbValue uint8 = iota // kind of the value in a register
-	fbArray              // array representation of the table in a register
-	fbField              // number of times a field access met another table layout
+	fbValue  uint8 = iota // kind of the value in a register
+	fbArray               // array representation of the table in a register
+	fbField               // number of times a field access met another table layout
+	fbUpval               // number of times an upvalue held another kind of value
+	fbInline              // set when inlining the callee of a call did not pay off
 )
 
 // jitUnit is a piece of compiled code.
@@ -222,6 +231,8 @@ type jitUnit struct {
 	meta   []exitMeta
 	consts []LValue
 	nslots int
+	// inlined describes the calls translated in place (see inlineCall).
+	inlined []inlineCall
 
 	// env is the globals table the code was specialized for (nil if it
 	// does not depend on one); keep holds the tables whose version word
@@ -428,6 +439,7 @@ var (
 	itabNil     = itabOf(LNil)
 	itabBool    = itabOf(LTrue)
 	itabTable   = itabOf(&LTable{})
+	itabFunc    = itabOf(&LFunction{})
 
 	offTableAkind     = unsafe.Offsetof(LTable{}.akind)
 	offTableArray     = unsafe.Offsetof(LTable{}.array)
@@ -435,6 +447,14 @@ var (
 	offTableFarr      = unsafe.Offsetof(LTable{}.farr)
 	offTableMetatable = unsafe.Offsetof(LTable{}.Metatable)
 	offTableFields    = unsafe.Offsetof(LTable{}.fields)
+
+	// closures and their upvalue cells
+	offFnUpvalues = unsafe.Offsetof(LFunction{}.Upvalues)
+	offFnEnv      = unsafe.Offsetof(LFunction{}.Env)
+	offUvValue    = unsafe.Offsetof(Upvalue{}.value)
+	offUvClosed   = unsafe.Offsetof(Upvalue{}.closed)
+	offUvIndex    = unsafe.Offsetof(Upvalue{}.index)
+	offUvReg      = unsafe.Offsetof(Upvalue{}.reg)
 
 	// layout of tableField; kind and stale are adjacent bytes that native
 	// code writes together as one little-endian word
