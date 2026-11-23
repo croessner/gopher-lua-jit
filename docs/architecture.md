@@ -155,6 +155,12 @@ Three kinds of speculation go beyond registers (`jit_frontend.go`,
   unboxed, functions and tables become constants guarded by identity. An
   open upvalue of an inlined callee that refers to a register of the
   running activation is that register.
+- **Methods.** `obj:name()` resolves at compile time to the function the
+  object's class provides. The code checks that the object still has
+  exactly the string keys it had (so the name is not among them) and the
+  same metatable; the metatable and the class tables behind it are
+  constants whose version counter changes when a function or table entry
+  is replaced or a key is added.
 - **Inlined calls.** The callee's instructions are translated in place
   with its registers relocated to the slots behind the function value,
   where its frame would be. Exits inside the callee name the chain of

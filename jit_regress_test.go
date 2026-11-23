@@ -1049,3 +1049,103 @@ func TestJITGenericForPrograms(t *testing.T) {
 		}
 	}
 }
+
+// jitMethodPrograms exercise method calls on objects.
+var jitMethodPrograms = map[string]string{
+	"class with methods": `
+		local Point = {}
+		Point.__index = Point
+		function Point.new(x, y) return setmetatable({x = x, y = y}, Point) end
+		function Point:len2() return self.x * self.x + self.y * self.y end
+		function Point:move(dx, dy) self.x = self.x + dx self.y = self.y + dy return self end
+		local p = Point.new(1, 2)
+		local s = 0
+		for i = 1, 300 do p:move(1, 0.5) s = s + p:len2() end
+		return s, p.x, p.y`,
+	"inheritance": `
+		local Base = {} Base.__index = Base
+		function Base:area() return 0 end
+		function Base:double() return self:area() * 2 end
+		local Rect = setmetatable({}, {__index = Base}) Rect.__index = Rect
+		function Rect:area() return self.w * self.h end
+		local r = setmetatable({w = 3, h = 4}, Rect)
+		local b = setmetatable({w = 1, h = 1}, Base)
+		local s = 0
+		for i = 1, 300 do s = s + r:double() + b:double() + r:area() end
+		return s`,
+	"method replaced and shadowed": `
+		local C = {} C.__index = C
+		function C:get() return self.v end
+		local o = setmetatable({v = 1}, C)
+		local s = 0
+		for i = 1, 300 do
+			if i == 100 then C.get = function(self) return self.v * 10 end end
+			if i == 200 then o.get = function(self) return -1 end end
+			if i == 250 then o.get = nil end
+			s = s + o:get()
+		end
+		return s`,
+	"objects of different classes and layouts": `
+		local A = {} A.__index = A function A:val() return self.n end
+		local B = {} B.__index = B function B:val() return self.n * 2 end
+		local objs = {setmetatable({n = 1}, A), setmetatable({n = 2}, B), setmetatable({n = 3, extra = 1}, A), {n = 4, val = function(self) return 100 end}}
+		local s = 0
+		for i = 1, 400 do local o = objs[i % 4 + 1] s = s + o:val() end
+		return s`,
+	"metatable replaced": `
+		local A = {} A.__index = A function A:f() return 1 end
+		local B = {} B.__index = B function B:f() return 2 end
+		local o = setmetatable({}, A)
+		local s = 0
+		for i = 1, 300 do
+			if i == 150 then setmetatable(o, B) end
+			if i == 220 then A.__index = B setmetatable(o, A) end
+			s = s + o:f()
+		end
+		return s`,
+	"field added to the object": `
+		local C = {} C.__index = C function C:f() return self.a end
+		local o = setmetatable({a = 1}, C)
+		local s = 0
+		for i = 1, 300 do
+			if i == 120 then o.b = 5 end
+			if i == 180 then o.f = function() return 7 end end
+			s = s + o:f()
+		end
+		return s`,
+	"__index function and missing method": `
+		local C = setmetatable({}, {__index = function(_, k) return function(self) return #k end end})
+		local o = setmetatable({}, {__index = C})
+		local p = setmetatable({}, {__index = {}})
+		local s = 0
+		for i = 1, 200 do s = s + o:anything() end
+		local ok, msg = pcall(function() for i = 1, 100 do p:nothing() end end)
+		return s, ok, (tostring(msg):gsub("^.-:%d+: ", ""))`,
+	"string methods": `local s = 0 local str = "hello" for i = 1, 200 do s = s + str:len() + #str:upper() end return s`,
+	"method with branches": `
+		local Acc = {} Acc.__index = Acc
+		function Acc:add(v) if v > self.max then self.max = v end self.sum = self.sum + v return self.sum end
+		local a = setmetatable({sum = 0, max = 0}, Acc)
+		local t = 0
+		for i = 1, 300 do t = t + a:add(i % 37) end
+		return t, a.sum, a.max`,
+}
+
+func TestJITMethodPrograms(t *testing.T) {
+	skipWithoutJIT(t)
+	for name, src := range jitMethodPrograms {
+		name, src := name, src
+		t.Run(name, func(t *testing.T) {
+			checkJITMatchesInterpreter(t, name, src)
+		})
+	}
+	for _, name := range []string{"class with methods", "inheritance", "method with branches"} {
+		for _, version := range []LanguageVersion{Lua51, Lua55} {
+			src := strings.Replace(jitMethodPrograms[name], "300", "20000", -1)
+			_, st := runChunk(jitTestOptions(version, 5), src)
+			if st.Compiled == 0 || st.Callouts > 200 || st.Blacklisted != 0 || st.Deopts > 50 {
+				t.Errorf("%s (%v): method calls are not native: %s", name, version, st)
+			}
+		}
+	}
+}

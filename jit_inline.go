@@ -50,8 +50,11 @@ func relocateInst(inst uint32, delta int) (uint32, bool) {
 	case OP_MOVE, OP_MOVEN, OP_LOADNIL, OP_UNM, OP_NOT, OP_LEN, OP_BNOT:
 		opSetArgA(&inst, reg(a))
 		opSetArgB(&inst, reg(b))
-	case OP_GETTABLE, OP_GETTABLEKS:
+	case OP_GETTABLE, OP_GETTABLEKS, OP_SELF:
 		opSetArgA(&inst, reg(a))
+		if opGetOpCode(inst) == OP_SELF {
+			reg(a + 1) // the object goes into the register behind the method
+		}
 		opSetArgB(&inst, reg(b))
 		opSetArgC(&inst, rk(c))
 	case OP_SETTABLE, OP_SETTABLEKS,
@@ -94,7 +97,7 @@ func inlinableProto(proto *FunctionProto) bool {
 				return false
 			}
 		case OP_MOVE, OP_MOVEN, OP_LOADK, OP_LOADBOOL, OP_LOADNIL, OP_GETUPVAL, OP_GETGLOBAL,
-			OP_GETTABLE, OP_GETTABLEKS, OP_SETTABLE, OP_SETTABLEKS,
+			OP_GETTABLE, OP_GETTABLEKS, OP_SETTABLE, OP_SETTABLEKS, OP_SELF,
 			OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_POW, OP_IDIV, OP_BAND, OP_BOR, OP_BXOR, OP_SHL, OP_SHR,
 			OP_UNM, OP_NOT, OP_LEN, OP_BNOT, OP_EQ, OP_LT, OP_LE, OP_TEST, OP_TESTSET:
 		default:

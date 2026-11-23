@@ -529,6 +529,10 @@ func (tb *LTable) RawSetString(key string, value LValue) {
 	}
 	tb.fields = append(tb.fields, tableField{key: key})
 	tb.fields[len(tb.fields)-1].set(value)
+	if tb.watchedKeys {
+		// compiled code relies on the key being absent
+		tb.version++
+	}
 	switch n := len(tb.fields); {
 	case n <= fieldLinearMax:
 	case 2*n > len(tb.fieldIndex):

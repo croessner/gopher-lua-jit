@@ -1180,6 +1180,10 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 		if !fe.getUpval(A, B) {
 			return fe.generic(pc, op)
 		}
+	case OP_SELF:
+		if !fe.selfMethod(A, B, C) {
+			return fe.generic(pc, op)
+		}
 	case OP_TFORLOOP:
 		if fe.inl != 0 {
 			return fe.generic(pc, op)

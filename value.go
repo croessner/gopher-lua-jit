@@ -165,7 +165,10 @@ type LTable struct {
 	// typedOK allows the array part to use the unboxed representations.
 	typedOK bool
 	// watched is set once JIT compiled code depends on the version field.
-	watched bool
+	// watchedKeys is set if that code also relies on string keys being
+	// absent (a method that is found further up a chain of classes).
+	watched     bool
+	watchedKeys bool
 	// intKeys is set for tables created by a Lua 5.5 profile state:
 	// integral number keys are reported as LInteger instead of LNumber.
 	intKeys bool

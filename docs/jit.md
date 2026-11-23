@@ -76,6 +76,11 @@ Compiled natively inside hot loops (both profiles):
   callee. The paths through the callee must agree on the kind of each
   result (a function that returns a number on one path and `nil` on
   another is called through the interpreter);
+- **method calls** (`obj:name(...)`) on tables: the method is found in
+  the object itself or through the `__index` tables of its metatable
+  (classes, up to four levels of inheritance) and then inlined like any
+  other small function. Objects with more than eight string keys, or
+  whose `__index` is a function, are looked up by the interpreter;
 - generic `for` loops: the loop body is compiled; `ipairs` over an array
   of numbers or booleans advances natively, every other iterator
   (`pairs`, `ipairs` over other values, custom iterators) is called

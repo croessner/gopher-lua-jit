@@ -115,6 +115,13 @@ const (
 	// access is left to the interpreter: the site sees tables of several
 	// layouts.
 	jitFieldMisses = 3
+	// jitMaxShapeFields bounds the number of string-keyed entries of an
+	// object whose keys compiled code checks one by one to prove that a
+	// method name is not among them.
+	jitMaxShapeFields = 8
+	// jitMaxClassDepth bounds the chain of __index tables that is
+	// followed to find a method.
+	jitMaxClassDepth = 4
 	// jitMaxInlineInsts bounds the size of a function that is translated
 	// in place of a call and jitMaxInlineDepth the nesting of such calls.
 	jitMaxInlineInsts = 40
@@ -468,6 +475,7 @@ var (
 	offFieldNum   = unsafe.Offsetof(tableField{}.num)
 	offFieldKind  = unsafe.Offsetof(tableField{}.kind)
 	offFieldStale = unsafe.Offsetof(tableField{}.stale)
+	offFieldValue = unsafe.Offsetof(tableField{}.value)
 
 	// jitLayoutOK is false if the Go runtime does not lay out interface
 	// values and slices the way the native code expects.
