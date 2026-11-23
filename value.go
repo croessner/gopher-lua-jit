@@ -145,11 +145,16 @@ func (nm LNumber) Format(f fmt.State, c rune) {
 type LTable struct {
 	Metatable LValue
 
-	array   []LValue
-	dict    map[LValue]LValue
-	strdict map[string]LValue
-	keys    []LValue
-	k2i     map[LValue]int
+	array []LValue
+	// fields holds the string-keyed entries in insertion order and
+	// fieldIndex locates them once there are too many for a linear
+	// search (see table.go). keys and k2i keep the insertion order of the
+	// other hash keys, which live in dict.
+	fields     []tableField
+	fieldIndex map[string]int32
+	dict       map[LValue]LValue
+	keys       []LValue
+	k2i        map[LValue]int
 
 	// iarr and farr are the unboxed array parts used when akind is
 	// arrayKindInt or arrayKindFloat (see table.go).

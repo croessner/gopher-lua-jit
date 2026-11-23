@@ -953,7 +953,11 @@ func base55NextKey(tb *LTable, key LValue) (LValue, bool) {
 			return key, false
 		}
 	}
-	if _, ok := tb.k2i[tb.normKey(key)]; ok {
+	if s, ok := key.(LString); ok {
+		if tb.findField(string(s)) >= 0 {
+			return key, true
+		}
+	} else if _, ok := tb.k2i[tb.normKey(key)]; ok {
 		return key, true
 	}
 	// An unboxed array part shrinks when its last element is cleared, so

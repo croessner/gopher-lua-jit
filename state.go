@@ -1631,7 +1631,8 @@ func (ls *LState) Remove(index int) {
 /* object allocation {{{ */
 
 func (ls *LState) NewTable() *LTable {
-	return ls.newTable(defaultArrayCap, defaultHashCap)
+	// both parts of the table are allocated on first use
+	return ls.newTable(0, 0)
 }
 
 func (ls *LState) CreateTable(acap, hcap int) *LTable {

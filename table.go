@@ -1,7 +1,23 @@
 package lua
 
-const defaultArrayCap = 32
-const defaultHashCap = 32
+// Initial capacities of the array and hash parts. Both parts are
+// allocated on first use: most tables are small, and many use only one
+// of the parts.
+const defaultArrayCap = 4
+const defaultHashCap = 4
+
+// tableField is one string-keyed entry of a table. A removed entry keeps
+// its position with the value LNil, so that the positions of the other
+// entries and the iteration order stay stable.
+type tableField struct {
+	key   string
+	value LValue
+}
+
+// fieldLinearMax is the number of string-keyed entries up to which a
+// lookup scans the entries instead of using a map: comparing a handful of
+// strings is faster than hashing one, and small tables need no map.
+const fieldLinearMax = 8
 
 // Array part representations of a LTable.
 //
@@ -55,7 +71,7 @@ func newLTable(acap int, hcap int) *LTable {
 		tb.array = make([]LValue, 0, acap)
 	}
 	if hcap != 0 {
-		tb.strdict = make(map[string]LValue, hcap)
+		tb.fields = make([]tableField, 0, hcap)
 	}
 	return tb
 }
@@ -404,36 +420,53 @@ func (tb *LTable) RawSetInt(key int, value LValue) {
 
 // RawSetString sets a given LValue to a given string index without the __newindex metamethod.
 func (tb *LTable) RawSetString(key string, value LValue) {
-	if tb.strdict == nil {
-		tb.strdict = make(map[string]LValue, defaultHashCap)
-	}
-	if tb.keys == nil {
-		tb.keys = []LValue{}
-		tb.k2i = map[LValue]int{}
-	}
-	if tb.watched {
-		tb.noteStringWrite(key, value)
+	i := tb.findField(key)
+	if i >= 0 {
+		f := &tb.fields[i]
+		if tb.watched && f.value != value {
+			tb.noteFieldChange(f.value)
+		}
+		f.value = value
+		return
 	}
 	if value == LNil {
-		// TODO tb.keys and tb.k2i should also be removed
-		delete(tb.strdict, key)
-	} else {
-		tb.strdict[key] = value
-		lkey := LString(key)
-		if _, ok := tb.k2i[lkey]; !ok {
-			tb.k2i[lkey] = len(tb.keys)
-			tb.keys = append(tb.keys, lkey)
+		return
+	}
+	if tb.fields == nil {
+		tb.fields = make([]tableField, 0, defaultHashCap)
+	}
+	tb.fields = append(tb.fields, tableField{key: key, value: value})
+	switch n := len(tb.fields); {
+	case tb.fieldIndex != nil:
+		tb.fieldIndex[key] = int32(n - 1)
+	case n > fieldLinearMax:
+		tb.fieldIndex = make(map[string]int32, 2*n)
+		for j := range tb.fields {
+			tb.fieldIndex[tb.fields[j].key] = int32(j)
 		}
 	}
 }
 
-// noteStringWrite bumps the table version when a watched table replaces or
-// removes an entry that JIT compiled code may have speculated on.
-func (tb *LTable) noteStringWrite(key string, value LValue) {
-	old, ok := tb.strdict[key]
-	if !ok || old == value {
-		return
+// findField returns the position of the string-keyed entry key in
+// tb.fields (which may hold LNil if the entry was removed), or -1.
+func (tb *LTable) findField(key string) int {
+	if tb.fieldIndex != nil {
+		if i, ok := tb.fieldIndex[key]; ok {
+			return int(i)
+		}
+		return -1
 	}
+	for i := range tb.fields {
+		if tb.fields[i].key == key {
+			return i
+		}
+	}
+	return -1
+}
+
+// noteFieldChange bumps the table version when a watched table replaces
+// or removes an entry that JIT compiled code may have speculated on.
+func (tb *LTable) noteFieldChange(old LValue) {
 	switch old.(type) {
 	case *LFunction, *LTable:
 		tb.version++
@@ -448,7 +481,7 @@ func (tb *LTable) RawSetH(key LValue, value LValue) {
 	}
 	key = tb.normKey(key)
 	if tb.dict == nil {
-		tb.dict = make(map[LValue]LValue, len(tb.strdict))
+		tb.dict = make(map[LValue]LValue)
 	}
 	if tb.keys == nil {
 		tb.keys = []LValue{}
@@ -489,13 +522,7 @@ func (tb *LTable) RawGet(key LValue) LValue {
 		}
 		key = tb.normKey(key)
 	case LString:
-		if tb.strdict == nil {
-			return LNil
-		}
-		if ret, ok := tb.strdict[string(v)]; ok {
-			return ret
-		}
-		return LNil
+		return tb.RawGetString(string(v))
 	}
 	if tb.dict == nil {
 		return LNil
@@ -518,13 +545,7 @@ func (tb *LTable) RawGetInt(key int) LValue {
 // RawGet returns an LValue associated with a given key without __index metamethod.
 func (tb *LTable) RawGetH(key LValue) LValue {
 	if s, sok := key.(LString); sok {
-		if tb.strdict == nil {
-			return LNil
-		}
-		if v, vok := tb.strdict[string(s)]; vok {
-			return v
-		}
-		return LNil
+		return tb.RawGetString(string(s))
 	}
 	if tb.dict == nil {
 		return LNil
@@ -537,11 +558,8 @@ func (tb *LTable) RawGetH(key LValue) LValue {
 
 // RawGetString returns an LValue associated with a given key without __index metamethod.
 func (tb *LTable) RawGetString(key string) LValue {
-	if tb.strdict == nil {
-		return LNil
-	}
-	if v, vok := tb.strdict[string(key)]; vok {
-		return v
+	if i := tb.findField(key); i >= 0 {
+		return tb.fields[i].value
 	}
 	return LNil
 }
@@ -564,11 +582,9 @@ func (tb *LTable) ForEach(cb func(LValue, LValue)) {
 			}
 		}
 	}
-	if tb.strdict != nil {
-		for k, v := range tb.strdict {
-			if v != LNil {
-				cb(LString(k), v)
-			}
+	for i := 0; i < len(tb.fields); i++ {
+		if f := tb.fields[i]; f.value != LNil {
+			cb(LString(f.key), f.value)
 		}
 	}
 	if tb.dict != nil {
@@ -604,20 +620,34 @@ func (tb *LTable) Next(key LValue) (LValue, LValue) {
 				return tb.intKey(idx + 1), v
 			}
 		}
-		if idx == n || n == 0 {
-			if len(tb.dict) == 0 && len(tb.strdict) == 0 {
-				return LNil, LNil
-			}
-			key = tb.keys[0]
-			if v := tb.RawGetH(key); v != LNil {
-				return key, v
-			}
+		return tb.nextField(0)
+	}
+	if s, ok := key.(LString); ok {
+		if i := tb.findField(string(s)); i >= 0 {
+			return tb.nextField(i + 1)
+		}
+		return LNil, LNil
+	}
+	return tb.nextKey(tb.k2i[tb.normKey(key)] + 1)
+}
+
+// nextField continues a traversal at position i of the string-keyed
+// entries, followed by the other hash keys.
+func (tb *LTable) nextField(i int) (LValue, LValue) {
+	for ; i < len(tb.fields); i++ {
+		if f := &tb.fields[i]; f.value != LNil {
+			return LString(f.key), f.value
 		}
 	}
+	return tb.nextKey(0)
+}
 
-	for i := tb.k2i[tb.normKey(key)] + 1; i < len(tb.keys); i++ {
+// nextKey continues a traversal at position i of the hash keys that are
+// not strings.
+func (tb *LTable) nextKey(i int) (LValue, LValue) {
+	for ; i < len(tb.keys); i++ {
 		key := tb.keys[i]
-		if v := tb.RawGetH(key); v != LNil {
+		if v := tb.dict[key]; v != nil && v != LNil {
 			return key, v
 		}
 	}
