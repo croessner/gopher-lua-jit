@@ -253,7 +253,7 @@ func (js *jitState) compile(L *LState, cf *callFrame, jp *jitProto, lp *jitLoop)
 		nslots: fe.nslots, inlined: append([]inlineCall(nil), fe.inlined...),
 		exitCounts: make([]uint32, len(code.Exits)),
 		exitKinds:  make([]uint8, len(code.Exits)),
-		keep:       append([]*LTable(nil), fe.keep...), nativeOps: fe.nativeOps,
+		keep:       append([]*LTable(nil), fe.keep...), nativeInsts: max(fe.insts-fe.callouts, 1),
 	}
 	if fe.usesEnv {
 		u.env = fe.env
@@ -550,6 +550,7 @@ loop:
 				// transparent, a yield inside the callee unwinds through
 				// it, so it must not count as a Go-call boundary)
 				selectMainLoop(true, ls.ctx != nil)(ls, ls.currentFrame)
+				u.callouts += jitLuaCallCallouts - 1
 				if ls.G.CurrentThread != ls || ls.currentFrame != cf {
 					// the callee did not return here but yielded (the
 					// frame of a tail-called yield is already gone, so
@@ -561,6 +562,14 @@ loop:
 				}
 			}
 			u.callouts++
+			if u.callouts&0xff == 0 && u.unprofitableAfter(u.iterations+fuel-frame[jit.CtxFuel/8]) {
+				// the interpreter is faster on this loop
+				ls.jitSettle(th, depth)
+				lp := u.loop
+				js.discard(u)
+				js.blacklist(lp, "loop is dominated by interpreter callouts")
+				break loop
+			}
 			if ls.currentFrame != cf || u.dead || js.localGen != localGen || (u.env != nil && functionEnv(cf.Fn) != u.env) {
 				// the interpreter continues: a new frame was pushed, the
 				// unit was discarded while the callout ran, a debugger
@@ -602,11 +611,12 @@ loop:
 }
 
 // unprofitable reports whether the unit spends so much time in callouts
-// that interpreting the loop is cheaper. A callout costs roughly as much
-// as the interpreter needs for a handful of instructions, so the native
-// work per iteration has to outweigh the callouts per iteration.
+// that interpreting the loop is cheaper: the instructions that run
+// natively have to outweigh the callouts per iteration (see
+// jitCalloutWeight). The number of native instructions is that of the
+// whole unit, so the rule errs on the side of keeping a unit.
 func (u *jitUnit) unprofitable() bool {
-	return u.iterations >= 512 && u.callouts*6 >= u.iterations*uint64(u.nativeOps)
+	return u.unprofitableAfter(u.iterations)
 }
 
 // jitExitNote does the bookkeeping for an exit to the interpreter: it
@@ -704,4 +714,10 @@ func (u *jitUnit) noteKind(id int, kind uint8) {
 	case seen != kind+1:
 		u.exitKinds[id] = exitKindsVary
 	}
+}
+
+// unprofitableAfter is unprofitable for a unit that has run the given
+// number of loop iterations so far.
+func (u *jitUnit) unprofitableAfter(iterations uint64) bool {
+	return iterations >= 512 && u.callouts*jitCalloutWeight >= iterations*uint64(u.nativeInsts)
 }

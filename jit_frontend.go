@@ -274,8 +274,10 @@ type jitFrontend struct {
 	noTwin    map[demoteKey]bool
 	indexRegs *regSet
 
-	// statistics for the profitability check
+	// statistics for the profitability check: IR operations emitted,
+	// instructions translated and how many of them became callouts
 	nativeOps int
+	insts     int
 	callouts  int
 }
 
@@ -355,7 +357,7 @@ func (fe *jitFrontend) translate() (err error) {
 	fe.keep = fe.keep[:0]
 	fe.usesEnv = false
 	fe.envConst = -1
-	fe.nativeOps, fe.callouts = 0, 0
+	fe.nativeOps, fe.insts, fe.callouts = 0, 0, 0
 	fe.discoverRegion()
 
 	// entry block: unbox the numeric registers that are live at the loop
@@ -1391,6 +1393,7 @@ func (fe *jitFrontend) inst(pc int) (next int, ended bool) {
 	op := opGetOpCode(inst)
 	A, B, C := opGetArgA(inst), opGetArgB(inst), opGetArgC(inst)
 	next = pc + 1
+	fe.insts++
 	openTop := fe.openTop
 	fe.openTop = -1
 	fe.pendingTop = openTop

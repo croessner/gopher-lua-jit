@@ -202,3 +202,59 @@ func TestJITCalloutAllocations(t *testing.T) {
 		t.Errorf("allocations per run: %v with the JIT, %v in the interpreter", native, interp)
 	}
 }
+
+// TestJITCalloutDominatedLoops checks the profitability rule: a loop
+// that does little besides calling the interpreter is handed back to it
+// soon, a loop with enough native work around a callout stays compiled.
+func TestJITCalloutDominatedLoops(t *testing.T) {
+	skipWithoutJIT(t)
+	tests := []struct {
+		name string
+		src  string
+		keep bool
+	}{
+		{"write to an open upvalue", `
+			local counter = 0
+			local function run() for i = 1, 20000 do counter = counter + 1 end end
+			run()
+			return counter`, false},
+		{"pairs with a trivial body", `
+			local t = {a = 1, b = 2, c = 3, d = 4}
+			local s = 0
+			for round = 1, 5000 do for _, v in pairs(t) do s = s + v end end
+			return s`, false},
+		{"table creation", `
+			local s = 0
+			for i = 1, 20000 do local o = {x = i, y = i} s = s + o.x end
+			return s`, false},
+		{"call of a vararg function", `
+			local function count(...) return select("#", ...) end
+			local s = 0
+			for i = 1, 20000 do s = s + count(i, i, i) end
+			return s`, false},
+		{"store of a string between native work", `
+			local words = {"alpha", "beta", "gamma", "delta"}
+			local p = {name = "p"}
+			local s = 0
+			for i = 1, 20000 do
+				p.name = words[i % 4 + 1]
+				s = s + i % 7 + #words
+			end
+			return s`, true},
+		{"library call between native work", `
+			local s = 0
+			for i = 1, 20000 do s = s + math.sin(i) * 2 + i % 3 end
+			return s`, true},
+	}
+	for _, tt := range tests {
+		_, st := runChunk(jitTestOptions(Lua51, 5), tt.src)
+		switch {
+		case st.Compiled == 0:
+			t.Errorf("%s: nothing was compiled: %s", tt.name, st)
+		case tt.keep && st.Blacklisted != 0:
+			t.Errorf("%s: the loop was handed back: %s", tt.name, st)
+		case !tt.keep && (st.Blacklisted == 0 || st.Callouts > 5000):
+			t.Errorf("%s: the loop keeps calling the interpreter: %s", tt.name, st)
+		}
+	}
+}

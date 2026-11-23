@@ -148,8 +148,13 @@ Not compiled (the loop stays in the interpreter):
 
 - vararg expressions, tail calls and returns inside the loop body end the
   compiled region;
-- loops that mostly consist of callouts – the JIT measures this at run time
-  and hands such loops back to the interpreter;
+- loops that mostly consist of callouts. The JIT counts callouts and
+  loop iterations at run time and hands a loop back to the interpreter
+  when one callout per iteration is not outweighed by more than three
+  natively translated instructions (the call of a Lua function that is
+  not inlined counts as three callouts). Typical cases are loops whose
+  body only creates tables, writes an upvalue of a running function,
+  walks `pairs` or calls a function that cannot be inlined;
 - functions without loops. There is no native call/return, so recursion
   (`fib`) is not accelerated.
 

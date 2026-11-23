@@ -116,6 +116,19 @@ const (
 	// layouts. Only misses that are frequent count (see
 	// jitMissInterval).
 	jitFieldMisses = 3
+	// jitCalloutWeight is the number of natively translated instructions
+	// one callout per loop iteration outweighs: a callout costs about as
+	// much as the interpreter needs for three to four instructions
+	// (measured on loops with one callout per iteration: those with
+	// three native instructions lose against the interpreter, those
+	// with four or more win).
+	jitCalloutWeight = 3
+	// jitLuaCallCallouts is what the call of a Lua function that is not
+	// inlined counts as in that comparison: it runs in an interpreter
+	// loop of its own, which costs more than the same call made by the
+	// interpreter (measured: a loop of six native instructions and one
+	// such call is a third slower than the interpreter).
+	jitLuaCallCallouts = 3
 	// jitCalloutStrikes is the number of strikes after which the
 	// interpreter executes an instruction on behalf of compiled code:
 	// its guards made a unit fail twice although they recorded what
@@ -258,10 +271,11 @@ type jitUnit struct {
 	// is read by the code, so that they stay alive.
 	env  *LTable
 	keep []*LTable
-	// nativeOps is the number of native operations of the unit, used to
-	// judge whether callouts dominate its run time.
-	nativeOps int
-	callouts  uint64
+	// nativeInsts is the number of instructions of the unit that were
+	// translated to native code, used to judge whether callouts dominate
+	// its run time.
+	nativeInsts int
+	callouts    uint64
 
 	exitCounts []uint32
 	// exitKinds remembers, per exit, the kind of value its guard failed
