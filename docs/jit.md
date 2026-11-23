@@ -88,11 +88,10 @@ Compiled natively inside hot loops (both profiles):
   exist is looked up by the interpreter, which may consult a metatable;
 - reads of **upvalues**: numbers are unboxed, functions and tables are
   constants, any other value (a string, a boolean, nil) is used where it
-  is stored. A table
-  found in an upvalue or in a global variable (a module-level `local t`
-  used inside functions, a global `config`) is indexed natively like a
-  table in a local variable: array elements, fields, length, methods and
-  `ipairs` all work on it;
+  is stored. A table found in an upvalue or in a global variable (a
+  module-level `local t` used inside functions, a global `config`) is
+  indexed natively like a table in a local variable: array elements,
+  fields, length, methods and `ipairs` all work on it;
 - **calls of small Lua functions**: a callee made of simple instructions
   (arithmetic, comparisons, field and array access, upvalue reads, further
   such calls, tail calls) and forward branches (`if`, `and`/`or`, several
@@ -158,6 +157,27 @@ Not compiled (the loop stays in the interpreter):
 - functions without loops. There is no native call/return, so recursion
   (`fib`) is not accelerated.
 
+What the compiler does not do, in the order in which it would matter for
+typical code:
+
+- **No allocation in native code.** Creating tables, strings and closures,
+  and storing anything but a number into a table, an upvalue or a global
+  needs the Go heap and its write barrier; these are callouts by design
+  (see the safety model). A loop whose body is mostly such work runs in
+  the interpreter.
+- **No hoisting of loop-invariant checks.** Redundant loads and guards are
+  removed inside a basic block, not across loop iterations: a loop over
+  `t[i]` checks on every iteration that `t` is still the same kind of
+  table. LuaJIT removes such checks by peeling the first iteration.
+- **No native calls.** A Lua function is either translated in place
+  (small, without loops) or called through the interpreter; functions
+  without loops are never compiled, so recursion is not accelerated.
+- **Iteration with `pairs`** and with custom iterators calls the iterator
+  through the interpreter.
+- **Ordering comparisons of strings**, string functions other than `byte`
+  and `len`, and `math` functions other than the ones listed above are
+  calls into Go.
+
 ## Resource bounds
 
 - **Code memory**: each state maps at most `MaxCodeBytes` of executable
@@ -170,9 +190,11 @@ Not compiled (the loop stays in the interpreter):
   state that is dropped without `Close` is unmapped by a finalizer.
 - **Compilation**: a loop is compiled at most six times; regions are
   limited to 3000 basic blocks. Recompilation happens when a guard keeps
-  failing. A guard that fails rarely (less than once per 32 iterations)
-  is tolerated. One that fails often records what it met, so that the
-  next translation fits better; if the instruction it belongs to makes a
+  failing: at least 128 times and more often than once per eight
+  iterations. Rarer failures, and bursts while a program warms up, are
+  tolerated (leaving native code costs about a microsecond, compiling
+  a few hundred). A guard that makes a unit fail records what it met, so
+  that the next translation fits better; if the instruction it belongs to makes a
   unit fail again, or meets values of several kinds, or has nothing to
   learn from (a table key that is not an integer), that one instruction
   is executed by the interpreter from then on and the rest of the loop

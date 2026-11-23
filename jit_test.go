@@ -15,7 +15,7 @@ func jitTestOptions(version LanguageVersion, threshold int) Options {
 		RegistrySize:    1024 * 20,
 		CallStackSize:   1024,
 		LanguageVersion: version,
-		JIT:             JITOptions{Enabled: true, Threshold: threshold, SafePointInterval: 97},
+		JIT:             JITOptions{Enabled: true, Threshold: threshold, SafePointInterval: 97, hotExit: 8},
 	}
 }
 
@@ -108,6 +108,13 @@ func checkJITMatchesInterpreter(t *testing.T, name, src string) {
 			if got != want {
 				t.Errorf("%s (%v, threshold %d):\n jit:         %s\n interpreter: %s", name, version, threshold, got, want)
 			}
+		}
+		// and with the patience of the default configuration, which
+		// keeps a unit through many more failed guards
+		opts := jitTestOptions(version, 3)
+		opts.JIT.hotExit = 0
+		if got, _ := runChunk(opts, src); got != want {
+			t.Errorf("%s (%v, default settings):\n jit:         %s\n interpreter: %s", name, version, got, want)
 		}
 	}
 }

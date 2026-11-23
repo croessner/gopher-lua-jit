@@ -38,6 +38,10 @@ type JITOptions struct {
 	// Log, if not nil, receives one line per JIT event (compilation,
 	// invalidation, blacklisting). It is meant for diagnostics.
 	Log io.Writer
+
+	// hotExit overrides jitHotExit; the tests use a small value so that
+	// short programs reach the recompilation paths.
+	hotExit int
 }
 
 // JITStats reports the activity of the JIT compiler of a state.
@@ -95,8 +99,12 @@ const (
 	// before it is blacklisted.
 	jitMaxCompiles = 6
 	// jitHotExit is the number of times a guard may fail before the unit
-	// is recompiled with the collected type feedback.
-	jitHotExit = 8
+	// is recompiled with the collected type feedback. Leaving native code
+	// once costs about a microsecond and compiling a unit a few hundred,
+	// so reacting earlier does not pay; and a burst of failures while a
+	// program warms up (the fields of its objects turn from integers
+	// into floats) must not be taken for the behaviour of the loop.
+	jitHotExit = 128
 	// jitMinIterations is the number of loop iterations native code has
 	// to execute per exit of one kind for the unit to be kept: below it
 	// the transitions between interpreter and native code cost more than
@@ -111,10 +119,12 @@ const (
 	// jitMaxFieldIndex bounds the position of a table field that native
 	// code accesses directly (the displacement must stay small).
 	jitMaxFieldIndex = 256
-	// jitFieldMisses is the number of failed field guards after which an
-	// access is left to the interpreter: the site sees tables of several
-	// layouts. Only misses that are frequent count (see
-	// jitMissInterval).
+	// jitFieldMisses is the number of units that a field guard (or an
+	// upvalue or callee guard) may make fail before its speculation is
+	// given up: the site sees tables of several layouts. Failures that
+	// do not make a unit fail are not counted: the last node of a list
+	// that lacks the "next" field costs one exit per traversal, which is
+	// cheaper than leaving the access to the interpreter on every node.
 	jitFieldMisses = 3
 	// jitCalloutWeight is the number of natively translated instructions
 	// one callout per loop iteration outweighs: a callout costs about as
@@ -134,10 +144,6 @@ const (
 	// its guards made a unit fail twice although they recorded what
 	// they met, or once without anything to learn from.
 	jitCalloutStrikes = 2
-	// jitMissInterval is the number of loop iterations per failure of a
-	// guard up to which the failure counts as a wrong speculation; a
-	// guard that fails less often is cheaper than the alternative.
-	jitMissInterval = 32
 	// jitMaxShapeFields bounds the number of string-keyed entries of an
 	// object whose keys compiled code checks one by one to prove that a
 	// method name is not among them.
@@ -161,6 +167,7 @@ const (
 // goroutine that owns the state.
 type jitState struct {
 	threshold int32
+	hotExit   uint64
 	maxCode   int
 	fuel      uint64
 	log       io.Writer
@@ -351,6 +358,10 @@ func (ls *LState) initJIT() {
 	}
 	if js.threshold <= 0 {
 		js.threshold = jitDefaultThreshold
+	}
+	js.hotExit = jitHotExit
+	if opts.hotExit > 0 {
+		js.hotExit = uint64(opts.hotExit)
 	}
 	if js.maxCode <= 0 {
 		js.maxCode = jitDefaultMaxCode

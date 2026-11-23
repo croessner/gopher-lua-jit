@@ -136,9 +136,10 @@ to the interpreter.
    boxed. Translation is repeated until these decisions are stable.
 
 Speculation that does not hold is corrected per site, not per loop. A
-failed guard records what it met (`jitExitNote`); only failures that are
-frequent count. When an exit is taken so often that the unit does not pay
-off, the unit is discarded and the instruction of that exit gets a strike:
+failed guard records the kind of value it met (`jitExitNote`). When an
+exit is taken so often that the unit does not pay off (128 times and more
+than once per eight iterations), the unit is discarded, the speculation of
+the guard counts as wrong, and the instruction of that exit gets a strike:
 after two strikes (or one, if the guard had nothing to learn from or met
 values of several kinds) the next translation leaves that instruction to
 the interpreter. Only failures that cannot be attributed to an

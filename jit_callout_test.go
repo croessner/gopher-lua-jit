@@ -258,3 +258,37 @@ func TestJITCalloutDominatedLoops(t *testing.T) {
 		}
 	}
 }
+
+// TestJITWarmUpBurstIsTolerated checks that guards which fail in a burst
+// while a program warms up do not cost the loop its optimizations: the
+// fields of the objects turn from integers into floats during the first
+// pass, after which the code is stable.
+func TestJITWarmUpBurstIsTolerated(t *testing.T) {
+	skipWithoutJIT(t)
+	const src = `
+		local Point = {}
+		Point.__index = Point
+		function Point:step(dt) self.x = self.x + self.vx * dt end
+		local ps = {}
+		for i = 1, 100 do ps[i] = setmetatable({x = i, vx = 1}, Point) end
+		local s = 0
+		for k = 1, 300 do
+			for i = 1, #ps do
+				local p = ps[i]
+				p:step(0.25)
+				s = s + p.x
+			end
+		end
+		return s`
+	for _, version := range []LanguageVersion{Lua51, Lua55} {
+		want, _ := runChunk(Options{LanguageVersion: version}, src)
+		got, st := runChunk(Options{LanguageVersion: version, JIT: JITOptions{Enabled: true}}, src)
+		if got != want {
+			t.Errorf("%v: jit %s, interpreter %s", version, got, want)
+		}
+		// (the callouts that remain create the objects)
+		if st.Compiled == 0 || st.Blacklisted != 0 || st.Callouts > 1000 {
+			t.Errorf("%v: the method call is no longer native: %s", version, st)
+		}
+	}
+}

@@ -642,15 +642,6 @@ func (ls *LState) jitExitNote(u *jitUnit, id int, m *exitMeta, base int, iterati
 				u.noteKind(id, tb.akind)
 				u.jp.feedback[key] = tb.akind
 			}
-		case fbField, fbUpval, fbInline, fbNarrow:
-			// A miss counts against the speculation only if it is not
-			// rare: the last node of a list that lacks the "next" field
-			// costs one exit per traversal, which is cheaper than
-			// leaving the access to the interpreter on every node.
-			misses := uint64(u.exitCounts[id]) + 1
-			if misses*jitMissInterval > u.iterations && u.jp.feedback[key] < jitFieldMisses {
-				u.jp.feedback[key]++
-			}
 		}
 	}
 	if m.expected {
@@ -658,19 +649,30 @@ func (ls *LState) jitExitNote(u *jitUnit, id int, m *exitMeta, base int, iterati
 	}
 	u.exitCounts[id]++
 	n := uint64(u.exitCounts[id])
-	if n < jitHotExit || n*jitMinIterations <= u.iterations {
+	if n < js.hotExit || n*jitMinIterations <= u.iterations {
 		return
 	}
 	// this exit is taken too often for the unit to pay off
+	if m.fbSlot >= 0 {
+		switch m.fbWhat {
+		case fbField, fbUpval, fbInline, fbNarrow:
+			// what the guard assumed counts as wrong only now
+			if key := (feedbackKey{m.fbPC, m.fbSlot, m.fbWhat}); u.jp.feedback[key] < jitFieldMisses {
+				u.jp.feedback[key]++
+			}
+		}
+	}
 	lp := u.loop
 	if m.inl != 0 {
-		// it lies in an inlined callee: compile again without inlining
-		// the outermost call around it
+		// it lies in an inlined callee, where the interpreter cannot
+		// help out with a single instruction: the next translation
+		// speculates anew, and if the callee makes a unit fail again
+		// the outermost call around it is no longer inlined
 		call := &u.inlined[m.inl-1]
 		for call.parent != 0 {
 			call = &u.inlined[call.parent-1]
 		}
-		u.jp.feedback[call.site] = jitFieldMisses
+		u.jp.feedback[call.site] = min(u.jp.feedback[call.site]+2, jitFieldMisses)
 		js.discard(u)
 		js.logf("discard unit at pc %d: inlined call at pc %d leaves native code too often (at pc %d of the callee)", lp.pc, call.callPC, x.PC)
 		return
