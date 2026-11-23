@@ -1062,8 +1062,26 @@ func (fe *jitFrontend) op(o jit.Op, typ jit.Type, args ...*jit.Value) *jit.Value
 	return fe.f.NewValue(fe.cur, o, typ, 0, args...)
 }
 
+// loadMem is load for memory that compiled code writes itself: elements
+// and length of unboxed array parts, number and kind of table fields.
+func (fe *jitFrontend) loadMem(mem uint8, o jit.Op, typ jit.Type, base *jit.Value, disp int64) *jit.Value {
+	v := fe.load(o, typ, base, disp)
+	v.Mem = mem
+	return v
+}
+
+// store emits a store of val to memory of the given class.
+func (fe *jitFrontend) store(mem uint8, o jit.Op, base *jit.Value, disp int64, val *jit.Value) {
+	fe.f.NewValue(fe.cur, o, jit.TInt, disp, base, val).Mem = mem
+}
+
+// load emits a load from memory that compiled code never writes (the
+// registers, table headers, keys, boxed values): the optimizer may reuse
+// its result until Go code runs again.
 func (fe *jitFrontend) load(o jit.Op, typ jit.Type, base *jit.Value, disp int64) *jit.Value {
-	return fe.f.NewValue(fe.cur, o, typ, disp, base)
+	v := fe.f.NewValue(fe.cur, o, typ, disp, base)
+	v.Mem = jit.MemStable
+	return v
 }
 
 // A boxed value is read from a location: the home slot of a register,
@@ -1839,7 +1857,7 @@ func (fe *jitFrontend) compare(op, a, b, c int) {
 		return
 	}
 	fe.calloutInst()
-	res := fe.load(jit.OpLoad64, jit.TInt, fe.f.Ctx(), jit.CtxResult)
+	res := fe.loadMem(jit.MemNone, jit.OpLoad64, jit.TInt, fe.f.Ctx(), jit.CtxResult)
 	fe.branch(fe.op(jit.OpNe, jit.TInt, res, fe.constInt(0)), pc+2, pc+1)
 }
 
@@ -2158,7 +2176,7 @@ func (fe *jitFrontend) getTable(a, b, c int) bool {
 		off = offTableArray
 	}
 	data := fe.load(jit.OpLoad64, jit.TInt, tp, int64(off)+sliceOffData)
-	n := fe.load(jit.OpLoad64, jit.TInt, tp, int64(off)+sliceOffLen)
+	n := fe.loadMem(jit.MemArrayLen, jit.OpLoad64, jit.TInt, tp, int64(off)+sliceOffLen)
 	fe.guard(fe.op(jit.OpULt, jit.TInt, idx, n), -1, 0)
 	switch akind {
 	case arrayKindInt, arrayKindBool:
@@ -2167,10 +2185,10 @@ func (fe *jitFrontend) getTable(a, b, c int) bool {
 		if akind == arrayKindBool {
 			kind = skBool // stored as the words 0 and 1
 		}
-		fe.set(a, kind, fe.load(jit.OpLoad64, jit.TInt, addr, 0))
+		fe.set(a, kind, fe.loadMem(jit.MemArray, jit.OpLoad64, jit.TInt, addr, 0))
 	case arrayKindFloat:
 		addr := fe.op(jit.OpAdd, jit.TInt, data, fe.op(jit.OpShl, jit.TInt, idx, fe.constInt(3)))
-		fe.set(a, skFloat, fe.load(jit.OpLoadF64, jit.TFloat, addr, 0))
+		fe.set(a, skFloat, fe.loadMem(jit.MemArray, jit.OpLoadF64, jit.TFloat, addr, 0))
 	default:
 		addr := fe.op(jit.OpAdd, jit.TInt, data, fe.op(jit.OpShl, jit.TInt, idx, fe.constInt(4)))
 		if byRef {
@@ -2237,13 +2255,13 @@ func (fe *jitFrontend) setTable(a, b, c int) bool {
 		storeOp = jit.OpStoreF64
 	}
 	data := fe.load(jit.OpLoad64, jit.TInt, tp, off+sliceOffData)
-	n := fe.load(jit.OpLoad64, jit.TInt, tp, off+sliceOffLen)
+	n := fe.loadMem(jit.MemArrayLen, jit.OpLoad64, jit.TInt, tp, off+sliceOffLen)
 	addr := fe.op(jit.OpAdd, jit.TInt, data, fe.op(jit.OpShl, jit.TInt, idx, fe.constInt(3)))
 	inBounds, grow := fe.split(fe.op(jit.OpULt, jit.TInt, idx, n))
 	join := fe.f.NewBlock()
 
 	fe.cur = inBounds
-	fe.f.NewValue(fe.cur, storeOp, jit.TInt, 0, addr, val)
+	fe.store(jit.MemArray, storeOp, addr, 0, val)
 	jumpIR(fe.cur, join)
 
 	// append: only if the element goes right behind the last one, the
@@ -2258,8 +2276,8 @@ func (fe *jitFrontend) setTable(a, b, c int) bool {
 	fe.guard(fe.op(jit.OpLt, jit.TInt, newLen, limit), -1, 0)
 	mt := fe.load(jit.OpLoad64, jit.TInt, tp, int64(offTableMetatable))
 	fe.guard(fe.op(jit.OpEq, jit.TInt, mt, fe.constInt(int64(itabNil))), -1, 0)
-	fe.f.NewValue(fe.cur, storeOp, jit.TInt, 0, addr, val)
-	fe.f.NewValue(fe.cur, jit.OpStore64, jit.TInt, off+sliceOffLen, tp, newLen)
+	fe.store(jit.MemArray, storeOp, addr, 0, val)
+	fe.store(jit.MemArrayLen, jit.OpStore64, tp, off+sliceOffLen, newLen)
 	jumpIR(fe.cur, join)
 
 	fe.cur = join
@@ -2425,13 +2443,13 @@ func (fe *jitFrontend) getField(a, b, c int) bool {
 		return false
 	}
 	home, _ := fe.homeSlot(b)
-	cur := fe.load(jit.OpLoad8, jit.TInt, data, disp+int64(offFieldKind))
+	cur := fe.loadMem(jit.MemField, jit.OpLoad8, jit.TInt, data, disp+int64(offFieldKind))
 	fe.guard(fe.op(jit.OpEq, jit.TInt, cur, fe.constInt(int64(kind))), home, fbField)
 	switch kind {
 	case fieldInt:
-		fe.set(a, skInt, fe.load(jit.OpLoad64, jit.TInt, data, disp+int64(offFieldNum)))
+		fe.set(a, skInt, fe.loadMem(jit.MemField, jit.OpLoad64, jit.TInt, data, disp+int64(offFieldNum)))
 	case fieldFloat:
-		fe.set(a, skFloat, fe.load(jit.OpLoadF64, jit.TFloat, data, disp+int64(offFieldNum)))
+		fe.set(a, skFloat, fe.loadMem(jit.MemField, jit.OpLoadF64, jit.TFloat, data, disp+int64(offFieldNum)))
 	default:
 		// a string, table, function, ...: the register refers to the
 		// value where it is. (An entry that was removed holds nil and
@@ -2473,14 +2491,14 @@ func (fe *jitFrontend) setField(a, b, c int) bool {
 	home, _ := fe.homeSlot(a)
 	// the entry must hold a number: replacing other values can involve
 	// the version counter of the table
-	cur := fe.load(jit.OpLoad8, jit.TInt, data, disp+int64(offFieldKind))
+	cur := fe.loadMem(jit.MemField, jit.OpLoad8, jit.TInt, data, disp+int64(offFieldKind))
 	fe.guard(fe.op(jit.OpNe, jit.TInt, cur, fe.constInt(int64(fieldBoxed))), home, fbField)
 	kind, store := int64(fieldInt), jit.OpStore64
 	if vk == skFloat {
 		kind, store = int64(fieldFloat), jit.OpStoreF64
 	}
-	fe.f.NewValue(fe.cur, store, jit.TInt, disp+int64(offFieldNum), data, val)
-	fe.f.NewValue(fe.cur, jit.OpStore64, jit.TInt, disp+int64(offFieldKind), data, fe.constInt(kind|1<<8))
+	fe.store(jit.MemField, store, data, disp+int64(offFieldNum), val)
+	fe.store(jit.MemField, jit.OpStore64, data, disp+int64(offFieldKind), fe.constInt(kind|1<<8))
 	return true
 }
 
@@ -2519,7 +2537,7 @@ func (fe *jitFrontend) length(a, b int) bool {
 	case arrayKindGeneric:
 		off = int64(offTableArray)
 	}
-	n := fe.load(jit.OpLoad64, jit.TInt, tp, off+sliceOffLen)
+	n := fe.loadMem(jit.MemArrayLen, jit.OpLoad64, jit.TInt, tp, off+sliceOffLen)
 	if akind == arrayKindGeneric {
 		// the length is the number of elements unless the array part
 		// ends with nil values, which the interpreter sorts out

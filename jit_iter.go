@@ -43,7 +43,7 @@ func (fe *jitFrontend) genericFor(a, b, c int) {
 	for r := a + 2; r < fe.info.nslots; r++ {
 		fe.st[r] = slotState{}
 	}
-	res := fe.load(jit.OpLoad64, jit.TInt, fe.f.Ctx(), jit.CtxResult)
+	res := fe.loadMem(jit.MemNone, jit.OpLoad64, jit.TInt, fe.f.Ctx(), jit.CtxResult)
 	fe.branch(fe.op(jit.OpNe, jit.TInt, res, fe.constInt(0)), exit, body)
 }
 
@@ -92,7 +92,7 @@ func (fe *jitFrontend) ipairsStep(a, rv, nvars, body, exit int) bool {
 		off, shift = int64(offTableArray), 4
 	}
 	data := fe.load(jit.OpLoad64, jit.TInt, tp, off+sliceOffData)
-	n := fe.load(jit.OpLoad64, jit.TInt, tp, off+sliceOffLen)
+	n := fe.loadMem(jit.MemArrayLen, jit.OpLoad64, jit.TInt, tp, off+sliceOffLen)
 	more, done := fe.split(fe.op(jit.OpULt, jit.TInt, idx, n))
 	addr := fe.f.NewValue(more, jit.OpAdd, jit.TInt, 0, data, fe.f.NewValue(more, jit.OpShl, jit.TInt, 0, idx, fe.f.ConstInt(more, shift)))
 	if akind == arrayKindGeneric {
@@ -129,11 +129,11 @@ func (fe *jitFrontend) ipairsStep(a, rv, nvars, body, exit int) bool {
 				fe.refPeek[int32(rv+1)] = sample
 			}
 		case arrayKindInt:
-			fe.set(rv+1, skInt, fe.load(jit.OpLoad64, jit.TInt, addr, 0))
+			fe.set(rv+1, skInt, fe.loadMem(jit.MemArray, jit.OpLoad64, jit.TInt, addr, 0))
 		case arrayKindBool:
-			fe.set(rv+1, skBool, fe.load(jit.OpLoad64, jit.TInt, addr, 0))
+			fe.set(rv+1, skBool, fe.loadMem(jit.MemArray, jit.OpLoad64, jit.TInt, addr, 0))
 		default:
-			fe.set(rv+1, skFloat, fe.load(jit.OpLoadF64, jit.TFloat, addr, 0))
+			fe.set(rv+1, skFloat, fe.loadMem(jit.MemArray, jit.OpLoadF64, jit.TFloat, addr, 0))
 		}
 	}
 	for r := rv + 2; r < rv+nvars; r++ {

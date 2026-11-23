@@ -186,8 +186,22 @@ Three kinds of speculation go beyond registers (`jit_frontend.go`,
   safe points, each carrying a snapshot of the values Go needs at that exit.
 - Optimizer: unreachable code removal, constant folding, algebraic
   simplification and strength reduction (`x*2^k`, `x//2^k`, `x%2^k`,
-  `x/2^k`), common subexpression elimination along the dominator tree, phi
-  simplification, dead code elimination.
+  `x/2^k`), common subexpression elimination along the dominator tree,
+  redundant load and guard elimination, phi simplification, dead code
+  elimination.
+- Memory is described to the optimizer by classes, not by an alias
+  analysis. The front end marks every load and store with what it touches:
+  memory that compiled code never writes (table headers, metatables, the
+  data pointers and capacities of slices, closures, boxed values), the length word of an unboxed array, an
+  unboxed array element, or the number and kind words of a table field.
+  Inside a block a load is replaced by an earlier load of the same address
+  until something could have changed that word: a store of the same class
+  (other than to a different word of the same object), an unclassified
+  store, or a callout or safe point, after which nothing is assumed. A
+  stored number is forwarded to a later load of the same word, and a guard
+  on a condition that an earlier guard of the block established is dropped.
+  This removes the repeated metatable, kind and bounds checks of code such
+  as `p.x = p.x + p.y` or `t[i] = t[i] + t[i-1]`.
 - Register allocation: linear scan over live intervals with spill slots in
   the context frame; phis are resolved by parallel moves on (split) edges.
 - Code emission through a small macro assembler interface with an amd64 and

@@ -105,7 +105,7 @@ func (fe *jitFrontend) selfMethod(a, b, c int) bool {
 		disp := int64(own) * int64(fieldSize)
 		fe.guard(fe.op(jit.OpULt, jit.TInt, fe.constInt(int64(own)), n), home, fbField)
 		ok := fe.keyMatches(data, disp, obj.fields[own].key)
-		kind := fe.load(jit.OpLoad8, jit.TInt, data, disp+int64(offFieldKind))
+		kind := fe.loadMem(jit.MemField, jit.OpLoad8, jit.TInt, data, disp+int64(offFieldKind))
 		ok = fe.op(jit.OpAnd, jit.TInt, ok, fe.op(jit.OpEq, jit.TInt, kind, fe.constInt(int64(fieldBoxed))))
 		itab := fe.load(jit.OpLoad64, jit.TInt, data, disp+int64(offFieldValue))
 		val := fe.load(jit.OpLoad64, jit.TInt, data, disp+int64(offFieldValue)+8)

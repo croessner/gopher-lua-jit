@@ -7,13 +7,14 @@ import (
 
 // Optimize runs the optimization pipeline: unreachable code removal,
 // constant folding and algebraic simplification (including strength
-// reduction), common subexpression elimination, phi simplification and
-// dead code elimination.
+// reduction), common subexpression elimination, redundant load and guard
+// elimination, phi simplification and dead code elimination.
 func Optimize(f *Func) {
 	removeUnreachable(f)
 	for round := 0; round < 4; round++ {
 		changed := simplify(f)
 		changed = cse(f) || changed
+		changed = memCSE(f) || changed
 		changed = simplifyPhis(f) || changed
 		if !changed {
 			break
@@ -561,6 +562,97 @@ func simplifyPhis(f *Func) bool {
 			b.Values = b.Values[:n]
 		}
 	}
+}
+
+// memCSE removes redundant memory accesses and checks inside a block:
+// a load of an address that was loaded before with nothing in between
+// that could have changed it, and a guard on a condition that an earlier
+// guard of the block already established.
+func memCSE(f *Func) bool {
+	type key struct {
+		op   Op
+		base int
+		disp int64
+	}
+	// known is the content of a memory word: the value that holds it and
+	// the class of the word, which decides what invalidates it.
+	type known struct {
+		v   *Value
+		mem uint8
+	}
+	repl := make(map[*Value]*Value)
+	resolve := func(v *Value) *Value {
+		for {
+			n, ok := repl[v]
+			if !ok {
+				return v
+			}
+			v = n
+		}
+	}
+	changed := false
+	for _, b := range f.Blocks {
+		loads := make(map[key]known)
+		guarded := make(map[*Value]bool)
+		n := 0
+		for _, v := range b.Values {
+			keep := true
+			switch v.Op {
+			case OpLoad64, OpLoad32, OpLoad8, OpLoadF64:
+				if v.Mem == MemNone {
+					break
+				}
+				k := key{v.Op, resolve(v.Args[0]).ID, v.Aux}
+				if prev, ok := loads[k]; ok && prev.v.Type == v.Type {
+					repl[v] = prev.v
+					keep = false
+				} else {
+					loads[k] = known{v, v.Mem}
+				}
+			case OpStore64, OpStoreF64:
+				// The store invalidates the loads of its class, except
+				// those of another word of the same object (the same
+				// base value at a different displacement). What it
+				// stored is the content of that word from now on.
+				base := resolve(v.Args[0]).ID
+				for k, l := range loads {
+					if v.Mem != MemNone && (l.mem != v.Mem || (k.base == base && (k.disp >= v.Aux+8 || k.disp+8 <= v.Aux))) {
+						continue
+					}
+					delete(loads, k)
+				}
+				if v.Mem != MemNone {
+					stored := resolve(v.Args[1])
+					if v.Op == OpStore64 && stored.Type == TInt {
+						loads[key{OpLoad64, base, v.Aux}] = known{stored, v.Mem}
+					} else if v.Op == OpStoreF64 && stored.Type == TFloat {
+						loads[key{OpLoadF64, base, v.Aux}] = known{stored, v.Mem}
+					}
+				}
+			case OpCallout, OpFuel:
+				// Go code may have run: nothing is known about memory
+				for k := range loads {
+					delete(loads, k)
+				}
+			case OpGuard:
+				cond := resolve(v.Args[0])
+				if guarded[cond] {
+					keep = false
+				} else {
+					guarded[cond] = true
+				}
+			}
+			if keep {
+				b.Values[n] = v
+				n++
+			} else {
+				changed = true
+			}
+		}
+		b.Values = b.Values[:n]
+	}
+	replaceUses(f, repl)
+	return changed
 }
 
 // deadCode removes values whose results are never used and that have no
