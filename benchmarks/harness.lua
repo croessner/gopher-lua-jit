@@ -6,6 +6,8 @@ local kernels = {
   {"calls", 300000}, {"fib", 24}, {"table_array", 200000}, {"table_hash", 300000},
   {"strings", 20000}, {"metamethods", 100000}, {"closures", 200000},
   {"mandelbrot", 100}, {"sieve", 200000}, {"math_calls", 300000}, {"go_callback", 300000},
+  {"objects", 200000}, {"module_state", 1000000}, {"linked_list", 200000},
+  {"string_scan", 200000}, {"stencil", 200000}, {"binary_search", 100000},
 }
 gofn = function(i) return i + 1 end -- stand-in for the host function
 local dir = arg and arg[0] and arg[0]:match("^(.*)/[^/]*$") or "."

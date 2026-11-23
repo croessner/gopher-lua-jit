@@ -108,12 +108,16 @@ More: [examples/basic](examples/basic), [examples/jit](examples/jit),
 Speed, on the benchmark kernels in [`benchmarks/`](benchmarks) (details and
 methodology in [docs/benchmarks.md](docs/benchmarks.md)):
 
-- the interpreter is on par with upstream GopherLua (it is the same design),
-- the JIT speeds up loops over numbers, arrays, number fields of tables and
-  calls of small Lua functions by one to two orders of magnitude,
-- code dominated by string operations, recursion, closures created in the
-  loop, metamethods or calls into Go is **not** accelerated by the JIT and
-  runs at interpreter speed.
+- the interpreter is on par with upstream GopherLua (it is the same design;
+  field access and state creation are somewhat faster),
+- the JIT speeds up loops over numbers, arrays, fields, objects with
+  methods, module-level tables, string scanning and calls of small Lua
+  and library functions by one to two orders of magnitude (8x to 170x on
+  the kernels; 2x to 16x faster than the PUC-Rio Lua 5.5 interpreter,
+  on par with to 6x behind LuaJIT),
+- code dominated by allocation (string building, tables or closures
+  created in the loop), recursion, metamethods or calls into Go is **not**
+  accelerated by the JIT and runs at interpreter speed.
 
 ## Documentation
 
